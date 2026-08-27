@@ -51,6 +51,10 @@ docker compose up --build
 
 首期不引入长期全文搜索集群、OpenSearch、Qdrant、Kafka 或 Kubernetes。
 
+## 许可证
+
+SBDC 自有代码与文档采用 [MIT License](LICENSE)。第三方依赖、模型权重、数据、论文内容和用户上传材料遵循各自的许可证与权利边界。
+
 ## 项目原则
 
 1. 所有高风险判断必须展示原文、来源、位置和检测依据。
