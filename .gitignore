@@ -1,0 +1,17 @@
+.env
+.pytest_cache/
+.playwright-cli/
+.mypy_cache/
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.tsbuildinfo
+.venv/
+node_modules/
+.next/
+coverage/
+htmlcov/
+.DS_Store
+tests/artifacts/
+output/
+.solopreneur/

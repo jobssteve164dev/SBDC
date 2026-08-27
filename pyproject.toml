@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sbdc"
+version = "0.1.0"
+description = "SBDC paper integrity evidence workbench"
+requires-python = ">=3.12"
+dependencies = [
+  "alembic==1.16.1",
+  "celery[redis]==5.5.3",
+  "fastapi==0.115.12",
+  "httpx==0.28.1",
+  "minio==7.2.15",
+  "psycopg[binary]==3.2.9",
+  "pydantic-settings==2.9.1",
+  "pymupdf==1.26.0",
+  "python-multipart==0.0.20",
+  "sqlalchemy==2.0.41",
+  "uvicorn[standard]==0.34.3",
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest==8.4.0",
+  "pytest-asyncio==1.0.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["packages/domain", "apps/api", "apps/worker"]
+
+[tool.pytest.ini_options]
+pythonpath = ["packages/domain", "apps/api", "apps/worker"]
+testpaths = ["tests"]
