@@ -12,6 +12,7 @@ EXPECTED_RUNTIME_WRAPPERS = {
     "postgres": ("postgres.Dockerfile", "postgres:16.9-alpine"),
     "redis": ("redis.Dockerfile", "redis:7.4.4-alpine"),
 }
+WEB_DOCKERFILE = PROJECT_ROOT / "apps/web/Dockerfile"
 
 
 def _rendered_services() -> dict[str, dict[str, object]]:
@@ -77,3 +78,27 @@ def test_runtime_image_wrappers_are_local_and_digest_pinned() -> None:
             rf"FROM {re.escape(upstream_image)}@sha256:[0-9a-f]{{64}}",
             instructions[0],
         )
+
+
+def test_web_build_runs_on_runner_architecture_and_emits_target_architecture() -> None:
+    instructions = [
+        line.strip()
+        for line in WEB_DOCKERFILE.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+
+    assert instructions[0] == "FROM --platform=$BUILDPLATFORM node:22-alpine AS deps"
+    assert "FROM --platform=$BUILDPLATFORM node:22-alpine AS runtime-deps" in instructions
+    assert "ARG TARGETARCH" in instructions
+    assert "amd64) npm_cpu=x64 ;; \\" in instructions
+    assert "arm64) npm_cpu=arm64 ;; \\" in instructions
+    assert (
+        'npm ci --omit=dev --ignore-scripts --os=linux --cpu="$npm_cpu" --libc=musl'
+        in instructions
+    )
+    assert "FROM --platform=$BUILDPLATFORM node:22-alpine AS builder" in instructions
+    assert "FROM --platform=$TARGETPLATFORM node:22-alpine AS runner" in instructions
+    assert "COPY --from=runtime-deps /app/node_modules ./node_modules" in instructions
+    assert instructions.index(
+        "COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./"
+    ) < instructions.index("COPY --from=runtime-deps /app/node_modules ./node_modules")
