@@ -40,6 +40,21 @@ def test_all_runtime_services_are_build_selectable_for_whole_project_release() -
     )
 
 
+def test_all_runtime_services_target_deployment_node_architecture() -> None:
+    services = _rendered_services()
+
+    wrong_platform = sorted(
+        service_name
+        for service_name, service in services.items()
+        if service.get("platform") != "linux/amd64"
+    )
+
+    assert wrong_platform == [], (
+        "Release images must target the amd64 deployment node explicitly: "
+        f"{wrong_platform}"
+    )
+
+
 def test_runtime_image_wrappers_are_local_and_digest_pinned() -> None:
     services = _rendered_services()
 
