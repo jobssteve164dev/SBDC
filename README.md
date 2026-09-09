@@ -7,7 +7,7 @@ SBDC 是一个面向博士论文和期刊论文的科研诚信深度检查项目
 ## 当前状态
 
 - 状态：首个 PDF 解析纵向闭环已进入实现验证。
-- 当前交付：浏览器上传、FastAPI 任务与资产 API、Celery 异步解析、GROBID 结构化结果、PostgreSQL/MinIO 持久化和解析覆盖率页面。
+- 当前交付：审查者登录、浏览器上传、FastAPI 任务与资产 API、Celery 异步解析、GROBID 结构化结果、PostgreSQL/MinIO 持久化和解析覆盖率页面。
 - 已确认边界：不建设长期全文对照库；每次任务只为当前论文临时获取和索引引用文献。
 - 下一轮入口：从 [首期实施计划](docs/06-MVP实施计划与验收.md) 的阶段 0 开始建立工程骨架和最小纵向闭环。
 
@@ -28,11 +28,13 @@ SBDC 是一个面向博士论文和期刊论文的科研诚信深度检查项目
 需要 Docker Engine、Docker Compose v2，以及至少 4 GB 可用内存。首次启动会下载 GROBID 镜像。
 
 ```bash
+cp .env.example .env
+# 将 .env 中的占位值全部换成随机凭据
 docker compose config --quiet
 docker compose up --build
 ```
 
-打开 <http://localhost:3000>，选择一篇带文本层的学术 PDF。页面会自动完成任务创建、文件验证和异步解析，并展示正文结构、参考文献覆盖率与 PDF 页码入口。API 文档位于 <http://localhost:8000/docs>。
+打开 <http://localhost:3000>，使用 `.env` 中的审查者账号和密码登录，再选择一篇带文本层的学术 PDF。页面会自动完成任务创建、文件验证和异步解析，并展示正文结构、参考文献覆盖率与 PDF 页码入口。API 只通过已鉴权的 Web 入口转发，不直接发布到宿主机。
 
 完整启动、验证和故障定位见 [本地运行与验证](docs/08-本地运行与验证.md)。
 

@@ -6,12 +6,55 @@ on:
     branches: [main, master]
 
 jobs:
-  verify:
+  backend:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: Project health check
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install dependencies
+        run: pip install -e '.[test]'
+      - name: Verify backend
         run: |
-          test -f README.md
-          test -f AGENTS.md
-          test -f PROJECT_MEMORY.md
+          python -m compileall -q apps packages migrations
+          pytest -q
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+        env:
+          API_INTERNAL_URL: http://127.0.0.1:3108
+          SBDC_ADMIN_USERNAME: reviewer
+          SBDC_ADMIN_PASSWORD: ci-only-password
+          SBDC_SESSION_SECRET: ci-only-session-secret-with-32-characters
+      - name: Verify authentication boundary
+        env:
+          SBDC_ADMIN_USERNAME: reviewer
+          SBDC_ADMIN_PASSWORD: ci-only-password
+          SBDC_SESSION_SECRET: ci-only-session-secret-with-32-characters
+        run: |
+          cp -R .next/static .next/standalone/.next/static
+          node tests/backend-stub.mjs &
+          backend_pid=$!
+          HOSTNAME=127.0.0.1 PORT=3107 node .next/standalone/server.js &
+          server_pid=$!
+          trap 'kill "$server_pid" "$backend_pid"' EXIT
+          for attempt in {1..20}; do
+            if wget -q --spider http://127.0.0.1:3107/login; then break; fi
+            sleep 1
+          done
+          SBDC_TEST_BASE_URL=http://127.0.0.1:3107 npm run test:e2e

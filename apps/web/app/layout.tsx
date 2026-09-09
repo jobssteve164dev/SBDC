@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { SessionAction } from "./session-action";
 
 export const metadata: Metadata = {
   title: "SBDC · 论文证据工作台",
@@ -10,12 +11,16 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="zh-CN">
       <body>
+        <a className="skip-link" href="#main-content">跳到主要内容</a>
         <header className="site-header">
           <a className="brand" href="/" aria-label="返回 SBDC 首页">
             <span className="brand-mark">S</span>
             <span>SBDC</span>
           </a>
-          <span className="header-note">论文证据工作台</span>
+          <div className="header-actions">
+            <span className="header-note">论文证据工作台</span>
+            <SessionAction />
+          </div>
         </header>
         {children}
       </body>

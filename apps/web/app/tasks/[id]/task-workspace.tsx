@@ -68,7 +68,7 @@ export function TaskWorkspace({ taskId }: { taskId: string }) {
     : null;
 
   if (!task) {
-    return <main className="loading-screen"><div className="spinner" /><p>{loadError ?? "正在读取检查进度…"}</p></main>;
+    return <main className="loading-screen" id="main-content"><div className="spinner" /><p>{loadError ?? "正在读取检查进度…"}</p></main>;
   }
 
   const complete = task.status === "references_ready";
@@ -81,7 +81,7 @@ export function TaskWorkspace({ taskId }: { taskId: string }) {
   const located = Number(coverage.located_sections ?? 0);
 
   return (
-    <main className="workspace-shell">
+    <main className="workspace-shell" id="main-content">
       <div className="workspace-topline">
         <a href="/" className="back-link">← 新建检查</a>
         {task.source_asset && <span className="asset-fingerprint">文件校验 {task.source_asset.sha256.slice(0, 12)}…</span>}

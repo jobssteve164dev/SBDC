@@ -2,7 +2,7 @@ import { UploadPaper } from "./upload-paper";
 
 export default function Home() {
   return (
-    <main className="home-shell">
+    <main className="home-shell" id="main-content">
       <section className="hero">
         <p className="eyebrow">从原文开始复核</p>
         <h1>看清论文结构与引用，<br />再作判断。</h1>
