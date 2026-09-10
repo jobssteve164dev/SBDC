@@ -10,10 +10,10 @@
 | --- | --- | --- |
 | Web | Next.js 提供上传、任务进度、解析结果和 PDF 定位页面 | 首个用户路径已连通 |
 | API | FastAPI 提供任务、资产上传、解析触发、结果和文件读取接口 | 接口本身不承担公网会话鉴权 |
-| Worker | Celery 调用 GROBID 与 PyMuPDF，结果写入 PostgreSQL 与 MinIO | 依赖完整 Compose 运行栈 |
+| Worker | Celery 调用 GROBID 与 PyMuPDF，结果写入 PostgreSQL 与 MinIO | 依赖业务 Compose 服务和受治理 PostgreSQL |
 | 数据 | PostgreSQL 保存任务结构，MinIO 保存任务资产 | 尚未实现完整任务生命周期清理 |
 | 鉴权 | Web 使用签名、限时、HttpOnly 会话；Proxy 同时保护页面和 `/backend` | 公网访问统一经过登录边界 |
-| 网络 | Compose 只把 Web 的 `3000` 端口绑定到节点回环地址，API 与数据服务仅在内部网络可达 | 公网只能经受治理的 Tunnel 进入，关闭直连旁路 |
+| 网络 | Compose 只把 Web 的 `3100` 端口绑定到节点回环地址，API 与数据服务仅在内部网络可达 | 公网只能经受治理的 Tunnel 进入，关闭直连旁路 |
 | 配置 | 数据库、对象存储、登录和会话密钥均由 `.env` 注入 | `.env` 被 Git 忽略，示例文件只含占位值 |
 | 持续验证 | CI 执行 Python 回归、Web 类型检查、生产构建，并验证登录后后端代理 | 不再以“文件存在”代替产品验证 |
 
@@ -30,7 +30,7 @@
 - 目标节点：`onex-nextterminal`；发布方式：既有 GitOps release 链；公开域名：`sbdc.szlk.uk`。
 - 生产入口只通过 Tunnel 指向 Web 回环端口；`/health` 会同时验证登录配置的完整性，配置无效时返回 `503`。
 - 发布验收必须同时覆盖：域名可达、登录页可用、匿名页面跳转、匿名后端 `401`、正确登录可进入工作台、容器健康及必需环境变量键存在。
-- GitOps release 的签名制品必须包含 Web、API、Worker、迁移服务以及 PostgreSQL、Redis、MinIO、GROBID 的全部运行镜像；目标节点只消费受治理的制品，不直连公共镜像仓库补拉依赖。GROBID 首次加载和预热消耗较大，但不应通过跳过解析来伪装部署成功。
+- GitOps release 的签名制品必须包含 Web、API、Worker、Redis、MinIO、GROBID 的全部业务运行镜像；生产 PostgreSQL 由 GitOps 数据库池独立创建、绑定并注入连接，不能进入业务 Compose 制品。schema 迁移由根 Compose 声明的 `api` 迁移入口执行，不发布独立迁移容器。切换完成前保留旧数据库作为回滚源，业务发布不得删除它。目标节点只消费受治理的制品，不直连公共镜像仓库补拉依赖。GROBID 首次加载和预热消耗较大，但不应通过跳过解析来伪装部署成功。
 
 ## 剩余产品缺口
 

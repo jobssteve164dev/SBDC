@@ -1,0 +1,50 @@
+services:
+  postgres:
+    image: sbdc-postgres:16.9-alpine
+    platform: linux/amd64
+    build:
+      context: ./infrastructure/docker/runtime-images
+      dockerfile: postgres.Dockerfile
+    environment:
+      POSTGRES_DB: sbdc
+      POSTGRES_USER: sbdc
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sbdc -d sbdc"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    platform: linux/amd64
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      REDIS_URL: redis://redis:6379/0
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:?MINIO_ACCESS_KEY is required}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?MINIO_SECRET_KEY is required}
+      MINIO_BUCKET: sbdc
+      GROBID_URL: http://grobid:8070
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  worker:
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  postgres_data:

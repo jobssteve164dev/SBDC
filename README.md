@@ -30,11 +30,11 @@ SBDC 是一个面向博士论文和期刊论文的科研诚信深度检查项目
 ```bash
 cp .env.example .env
 # 将 .env 中的占位值全部换成随机凭据
-docker compose config --quiet
-docker compose up --build
+docker compose -f compose.yaml -f compose.local.yaml config --quiet
+docker compose -f compose.yaml -f compose.local.yaml up --build
 ```
 
-打开 <http://localhost:3000>，使用 `.env` 中的审查者账号和密码登录，再选择一篇带文本层的学术 PDF。页面会自动完成任务创建、文件验证和异步解析，并展示正文结构、参考文献覆盖率与 PDF 页码入口。API 只通过已鉴权的 Web 入口转发，不直接发布到宿主机。
+打开 <http://localhost:3100>，使用 `.env` 中的审查者账号和密码登录，再选择一篇带文本层的学术 PDF。页面会自动完成任务创建、文件验证和异步解析，并展示正文结构、参考文献覆盖率与 PDF 页码入口。API 只通过已鉴权的 Web 入口转发，不直接发布到宿主机。
 
 完整启动、验证和故障定位见 [本地运行与验证](docs/08-本地运行与验证.md)。
 
@@ -49,9 +49,11 @@ docker compose up --build
 - 文本检测：Winnowing/MinHash、RapidFuzz、BGE-M3、FAISS
 - 统计检测：隔离 R Worker，接入 statcheck、scrutiny、rsprite2
 - 图片检测：OpenCV、Pillow/imagehash、SSCD
-- 部署：Docker Compose
+- 部署：业务服务使用 Docker Compose，生产 PostgreSQL 由 GitOps 数据库池治理
 
 首期不引入长期全文搜索集群、OpenSearch、Qdrant、Kafka 或 Kubernetes。
+
+生产发布不包含 PostgreSQL 或独立迁移容器。GitOps 先从数据库池创建托管 PostgreSQL，再把连接正式绑定到 API；发布时由绑定后的 API 镜像执行 Alembic。`compose.local.yaml` 仅为本地开发补回 PostgreSQL 和一次性迁移服务。
 
 ## 许可证
 

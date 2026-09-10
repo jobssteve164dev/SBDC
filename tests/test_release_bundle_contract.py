@@ -3,13 +3,15 @@ import re
 import subprocess
 from pathlib import Path
 
+import yaml
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+COMPOSE_FILE = PROJECT_ROOT / "compose.yaml"
 RUNTIME_IMAGE_DIR = PROJECT_ROOT / "infrastructure/docker/runtime-images"
 EXPECTED_RUNTIME_WRAPPERS = {
     "grobid": ("grobid.Dockerfile", "grobid/grobid:0.9.0-crf"),
     "minio": ("minio.Dockerfile", "minio/minio:RELEASE.2025-04-22T22-12-26Z"),
-    "postgres": ("postgres.Dockerfile", "postgres:16.9-alpine"),
     "redis": ("redis.Dockerfile", "redis:7.4.4-alpine"),
 }
 WEB_DOCKERFILE = PROJECT_ROOT / "apps/web/Dockerfile"
@@ -24,6 +26,60 @@ def _rendered_services() -> dict[str, dict[str, object]]:
         text=True,
     )
     return json.loads(result.stdout)["services"]
+
+
+def _rendered_local_services() -> dict[str, dict[str, object]]:
+    result = subprocess.run(
+        [
+            "docker",
+            "compose",
+            "-f",
+            "compose.yaml",
+            "-f",
+            "compose.local.yaml",
+            "config",
+            "--no-interpolate",
+            "--format",
+            "json",
+        ],
+        cwd=PROJECT_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)["services"]
+
+
+def test_production_release_excludes_the_local_postgres_service() -> None:
+    assert "postgres" not in _rendered_services()
+
+
+def test_production_database_migration_uses_the_attached_api_service() -> None:
+    compose = yaml.safe_load(COMPOSE_FILE.read_text(encoding="utf-8"))
+
+    assert compose["x-gitops"]["database_migration"] == {
+        "service": "api",
+        "command": ["/usr/local/bin/alembic", "upgrade", "head"],
+    }
+    assert "migrate" not in compose["services"]
+    assert "migrate" not in compose["services"]["api"].get("depends_on", {})
+    assert "migrate" not in compose["services"]["worker"].get("depends_on", {})
+
+
+def test_local_compose_restores_postgres_and_orders_schema_migration_after_it() -> None:
+    services = _rendered_local_services()
+
+    assert services["postgres"]["image"] == "sbdc-postgres:16.9-alpine"
+    assert Path(services["postgres"]["build"]["context"]).resolve() == RUNTIME_IMAGE_DIR.resolve()
+    assert services["postgres"]["build"]["dockerfile"] == "postgres.Dockerfile"
+    assert {
+        "type": "volume",
+        "source": "postgres_data",
+        "target": "/var/lib/postgresql/data",
+        "volume": {},
+    } in services["postgres"]["volumes"]
+    assert services["migrate"]["depends_on"]["postgres"]["condition"] == "service_healthy"
 
 
 def test_all_runtime_services_are_build_selectable_for_whole_project_release() -> None:
