@@ -108,3 +108,10 @@ def test_public_web_port_is_configurable_with_the_audited_unique_default() -> No
     compose = (PROJECT_ROOT / "compose.yaml").read_text(encoding="utf-8")
 
     assert '127.0.0.1:${SBDC_WEB_PORT:-3100}:3000' in compose
+
+
+def test_web_runtime_provides_the_healthcheck_client_used_by_compose() -> None:
+    dockerfile = WEB_DOCKERFILE.read_text(encoding="utf-8")
+
+    assert "RUN apk add --no-cache wget" in dockerfile
+    assert dockerfile.index("RUN apk add --no-cache wget") < dockerfile.index("USER nextjs")
