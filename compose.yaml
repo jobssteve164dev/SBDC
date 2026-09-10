@@ -1,6 +1,19 @@
 name: sbdc
 
 x-gitops:
+  public_entry:
+    service: web
+    container_port: 3000
+    healthcheck:
+      path: /health
+      expected_json:
+        status: ok
+  services:
+    api: {exposure: internal}
+    grobid: {exposure: internal}
+    minio: {exposure: internal}
+    redis: {exposure: internal}
+    worker: {exposure: internal}
   database_migration:
     service: api
     command: ["/usr/local/bin/alembic", "upgrade", "head"]
