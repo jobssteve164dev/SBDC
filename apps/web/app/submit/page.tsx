@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 
+import { pageTitle } from "../brand";
 import { PublicSubmission } from "./public-submission";
 
 export const metadata: Metadata = {
-  title: "提交待核查论文 · 科研诚信证据核查平台",
+  title: pageTitle("提交待核查论文"),
   description: "提交你希望由科研诚信审查者核查的论文。",
 };
 

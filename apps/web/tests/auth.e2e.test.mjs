@@ -29,8 +29,11 @@ test("主域名根路径直接展示公众营销页", async () => {
   assert.equal(response.status, 200);
   const html = await response.text();
   assert.match(html, /科研诚信证据核查平台/);
-  assert.match(html, /Research Integrity Evidence Review Platform/);
-  assert.doesNotMatch(html, /<title>[^<]*SBDC/);
+  assert.match(html, /SBDC · Source-Based Deep Check/);
+  assert.match(html, /<title>SBDC · Source-Based Deep Check<\/title>/);
+  assert.match(html, /<h1>SBDC<\/h1>/);
+  assert.doesNotMatch(html, /Research Integrity Evidence Review Platform/);
+  assert.match(html, /SBDC(?:<!-- -->)? 是面向科研诚信审查的证据核查平台/);
   assert.match(html, /href="\/submit"/);
   assert.match(html, /href="\/login"/);
 });
@@ -47,10 +50,20 @@ test("投稿无需注册登录并允许选择是否公开", async () => {
 test("公开投稿与审查公示拥有独立公开页面", async () => {
   const submissions = await fetch(`${baseUrl}/public-submissions`);
   assert.equal(submissions.status, 200);
-  assert.match(await submissions.text(), /公开投稿论文/);
+  const submissionsHtml = await submissions.text();
+  assert.match(submissionsHtml, /公开投稿论文/);
+  assert.match(submissionsHtml, /<title>公开投稿 · SBDC<\/title>/);
   const notices = await fetch(`${baseUrl}/review-notices`);
   assert.equal(notices.status, 200);
-  assert.match(await notices.text(), /现有证据不足/);
+  const noticesHtml = await notices.text();
+  assert.match(noticesHtml, /现有证据不足/);
+  assert.match(noticesHtml, /<title>审查公示 · SBDC<\/title>/);
+
+  const submissionForm = await fetch(`${baseUrl}/submit`);
+  assert.match(await submissionForm.text(), /<title>提交待核查论文 · SBDC<\/title>/);
+
+  const loginPage = await fetch(`${baseUrl}/login`);
+  assert.match(await loginPage.text(), /<title>审查者登录 · SBDC<\/title>/);
 });
 
 test("未登录访问工作台会进入带原路径的登录页", async () => {
@@ -104,6 +117,7 @@ test("正确凭据建立会话并允许进入工作台", async () => {
   const workspace = await fetch(`${baseUrl}/workbench`, { headers: { cookie }, redirect: "manual" });
   assert.equal(workspace.status, 200);
   const workspaceHtml = await workspace.text();
+  assert.match(workspaceHtml, /<title>审查工作台 · SBDC<\/title>/);
   assert.match(workspaceHtml, /上传待检论文/);
   assert.match(workspaceHtml, /公众投稿论文/);
   assert.match(workspaceHtml, /发布到审查公示/);

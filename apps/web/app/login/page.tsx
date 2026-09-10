@@ -3,9 +3,10 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { getAuthConfig, safeNextPath, SESSION_COOKIE, verifySessionToken } from "../../lib/auth";
+import { pageTitle } from "../brand";
 
 export const metadata: Metadata = {
-  title: "审查者登录 · 科研诚信证据核查平台",
+  title: pageTitle("审查者登录"),
 };
 
 type LoginPageProps = {

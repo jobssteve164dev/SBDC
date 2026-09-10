@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
+import { pageTitle } from "../brand";
 import { PublicSubmissionsList } from "../public-list";
 
-export const metadata: Metadata = { title: "公开投稿 · 科研诚信证据核查平台" };
+export const metadata: Metadata = { title: pageTitle("公开投稿") };
 
 export default function PublicSubmissionsPage() {
   return <main className="public-index" id="main-content">

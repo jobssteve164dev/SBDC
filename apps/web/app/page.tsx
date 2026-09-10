@@ -1,12 +1,14 @@
+import { PRODUCT_DESCRIPTOR_ZH, PRODUCT_NAME, PRODUCT_NAME_EN } from "./brand";
+
 export default function Home() {
   return (
     <main id="main-content">
       <section className="marketing-hero">
         <div>
-          <p className="eyebrow">Research Integrity Evidence Review Platform</p>
-          <h1>科研诚信证据<br />核查平台</h1>
-          <p className="hero-lead">让每一项疑点，都能回到原文与依据。</p>
-          <p className="hero-copy">面向科研审查者与公众监督者，将论文结构、参考文献和核查线索整理成可定位、可追溯、可由人复核的证据基础。</p>
+          <p className="eyebrow">{PRODUCT_DESCRIPTOR_ZH}</p>
+          <h1>{PRODUCT_NAME}</h1>
+          <p className="hero-lead">{PRODUCT_NAME_EN}</p>
+          <p className="hero-copy">让每一项疑点，都能回到原文与依据。面向科研审查者与公众监督者，将论文结构、参考文献和核查线索整理成可定位、可追溯、可由人复核的证据基础。</p>
           <div className="hero-actions">
             <a className="primary-link" href="/submit">提交待核查论文 <span aria-hidden="true">→</span></a>
             <a className="text-link" href="/login">审查者登录</a>

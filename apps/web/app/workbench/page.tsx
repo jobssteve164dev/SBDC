@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 
+import { pageTitle } from "../brand";
 import { UploadPaper } from "../upload-paper";
 import { SubmissionQueue } from "./submission-queue";
 
-export const metadata: Metadata = { title: "审查工作台 · 科研诚信证据核查平台" };
+export const metadata: Metadata = { title: pageTitle("审查工作台") };
 
 export default function WorkbenchPage() {
   return (

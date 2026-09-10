@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
+import { pageTitle } from "../brand";
 import { ReviewNoticesList } from "../public-list";
 
-export const metadata: Metadata = { title: "审查公示 · 科研诚信证据核查平台" };
+export const metadata: Metadata = { title: pageTitle("审查公示") };
 
 export default function ReviewNoticesPage() {
   return <main className="public-index" id="main-content">

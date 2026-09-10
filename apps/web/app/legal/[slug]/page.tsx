@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { pageTitle } from "../../brand";
 
 const documentTypes = {
   terms: "terms_of_service", privacy: "privacy_policy", cookies: "cookie_policy",
@@ -27,7 +28,7 @@ async function legalDocument(slug: string): Promise<LegalDocument | null> {
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params;
   const document = await legalDocument(slug);
-  return { title: `${document?.title ?? "法律信息"} · 科研诚信证据核查平台` };
+  return { title: pageTitle(document?.title ?? "法律信息") };
 }
 
 function Body({ text }: { text: string }) {
