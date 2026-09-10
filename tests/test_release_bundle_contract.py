@@ -102,3 +102,9 @@ def test_web_build_runs_on_runner_architecture_and_emits_target_architecture() -
     assert instructions.index(
         "COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./"
     ) < instructions.index("COPY --from=runtime-deps /app/node_modules ./node_modules")
+
+
+def test_public_web_port_is_configurable_with_the_audited_unique_default() -> None:
+    compose = (PROJECT_ROOT / "compose.yaml").read_text(encoding="utf-8")
+
+    assert '127.0.0.1:${SBDC_WEB_PORT:-3100}:3000' in compose
