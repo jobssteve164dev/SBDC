@@ -37,6 +37,9 @@ services:
     restart: "no"
 
   api:
+    environment:
+      PUBLIC_COOKIE_SECURE: "false"
+      PUBLIC_ORIGINS: http://localhost:3100,http://127.0.0.1:3100
     depends_on:
       migrate:
         condition: service_completed_successfully

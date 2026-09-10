@@ -122,12 +122,12 @@ export async function verifySessionToken(
 }
 
 export function safeNextPath(value: FormDataEntryValue | string | null | undefined): string {
-  if (typeof value !== "string" || !value.startsWith("/") || value.startsWith("//")) return "/";
+  if (typeof value !== "string" || !value.startsWith("/") || value.startsWith("//")) return "/workbench";
   try {
     const resolved = new URL(value, "https://sbdc.local");
-    if (resolved.origin !== "https://sbdc.local") return "/";
+    if (resolved.origin !== "https://sbdc.local") return "/workbench";
     return `${resolved.pathname}${resolved.search}${resolved.hash}`;
   } catch {
-    return "/";
+    return "/workbench";
   }
 }

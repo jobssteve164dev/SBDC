@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { SessionAction } from "./session-action";
+import { SiteFooter } from "./site-footer";
 
 export const metadata: Metadata = {
   title: "SBDC · 论文证据工作台",
@@ -18,11 +19,12 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
             <span>SBDC</span>
           </a>
           <div className="header-actions">
-            <span className="header-note">论文证据工作台</span>
+            <a className="header-note" href="/submit">公众投稿</a>
             <SessionAction />
           </div>
         </header>
         {children}
+        <SiteFooter />
       </body>
     </html>
   );

@@ -20,7 +20,7 @@ type LoginError = "configuration" | "credentials" | "rate_limit";
 function loginRedirect(error: LoginError, next: string, retryAfter = 0) {
   const location = new URL("/login", "https://sbdc.local");
   location.searchParams.set("error", error);
-  if (next !== "/") location.searchParams.set("next", next);
+  if (next !== "/workbench") location.searchParams.set("next", next);
   const headers: Record<string, string> = { location: `${location.pathname}${location.search}` };
   if (retryAfter) headers["retry-after"] = String(retryAfter);
   return new NextResponse(null, { status: 303, headers });

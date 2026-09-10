@@ -50,7 +50,7 @@ jobs:
           cp -R .next/static .next/standalone/.next/static
           node tests/backend-stub.mjs &
           backend_pid=$!
-          HOSTNAME=127.0.0.1 PORT=3107 node .next/standalone/server.js &
+          HOSTNAME=127.0.0.1 PORT=3107 API_INTERNAL_URL=http://127.0.0.1:3108 node .next/standalone/server.js &
           server_pid=$!
           trap 'kill "$server_pid" "$backend_pid"' EXIT
           for attempt in {1..20}; do

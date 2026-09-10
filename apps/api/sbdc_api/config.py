@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     max_pdf_pages: int = 500
     request_timeout_seconds: int = 300
     cors_origins: str = "http://localhost:3000"
+    public_cookie_secure: bool = True
+    public_session_days: int = 30
+    public_origins: str = "https://sbdc.szlk.uk,http://localhost:3000,http://127.0.0.1:3100"
+    internal_api_secret: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

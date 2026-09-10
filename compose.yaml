@@ -73,14 +73,16 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
-    environment: &backend_environment
-      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
-      REDIS_URL: redis://redis:6379/0
-      MINIO_ENDPOINT: minio:9000
-      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:?MINIO_ACCESS_KEY is required}
-      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?MINIO_SECRET_KEY is required}
-      MINIO_BUCKET: sbdc
-      GROBID_URL: http://grobid:8070
+    environment:
+      <<: &backend_environment
+        DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+        REDIS_URL: redis://redis:6379/0
+        MINIO_ENDPOINT: minio:9000
+        MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:?MINIO_ACCESS_KEY is required}
+        MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?MINIO_SECRET_KEY is required}
+        MINIO_BUCKET: sbdc
+        GROBID_URL: http://grobid:8070
+      SBDC_INTERNAL_API_SECRET: ${SBDC_INTERNAL_API_SECRET:?SBDC_INTERNAL_API_SECRET is required}
     depends_on:
       redis:
         condition: service_healthy
@@ -117,6 +119,7 @@ services:
       SBDC_ADMIN_USERNAME: ${SBDC_ADMIN_USERNAME:?SBDC_ADMIN_USERNAME is required}
       SBDC_ADMIN_PASSWORD: ${SBDC_ADMIN_PASSWORD:?SBDC_ADMIN_PASSWORD is required}
       SBDC_SESSION_SECRET: ${SBDC_SESSION_SECRET:?SBDC_SESSION_SECRET is required}
+      SBDC_INTERNAL_API_SECRET: ${SBDC_INTERNAL_API_SECRET:?SBDC_INTERNAL_API_SECRET is required}
     depends_on:
       api:
         condition: service_healthy

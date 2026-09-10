@@ -14,7 +14,7 @@ type LoginPageProps = {
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
   const query = await searchParams;
-  const next = safeNextPath(query.next);
+  const next = safeNextPath(query.next ?? "/workbench");
   const config = getAuthConfig();
   const cookieStore = await cookies();
   if (config && await verifySessionToken(cookieStore.get(SESSION_COOKIE)?.value, config)) redirect(next);

@@ -2,11 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { getAuthConfig, SESSION_COOKIE, safeNextPath, verifySessionToken } from "./lib/auth";
 
-const PUBLIC_PATHS = new Set(["/login", "/health", "/auth/login", "/auth/logout", "/icon.svg", "/favicon.ico"]);
+const PUBLIC_PATHS = new Set(["/", "/login", "/submit", "/health", "/auth/login", "/auth/logout", "/icon.svg", "/favicon.ico"]);
 
 export async function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
-  if (PUBLIC_PATHS.has(pathname) || pathname.startsWith("/_next/")) return NextResponse.next();
+  if (
+    PUBLIC_PATHS.has(pathname)
+    || pathname.startsWith("/legal/")
+    || pathname.startsWith("/backend/public/")
+    || pathname.startsWith("/_next/")
+  ) return NextResponse.next();
 
   const config = getAuthConfig();
   const authenticated = config

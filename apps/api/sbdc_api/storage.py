@@ -19,6 +19,10 @@ def source_storage_key(task_id: str, asset_id: str) -> str:
     return f"tasks/{task_id}/source/{asset_id}.pdf"
 
 
+def submission_storage_key(submission_id: str, asset_id: str) -> str:
+    return f"submissions/{submission_id}/source/{asset_id}.pdf"
+
+
 def ensure_bucket() -> None:
     if not client.bucket_exists(settings.minio_bucket):
         client.make_bucket(settings.minio_bucket)
@@ -31,6 +35,10 @@ def put_bytes(key: str, data: bytes, content_type: str) -> None:
 def put_file(key: str, path: str, size: int, content_type: str) -> None:
     with open(path, "rb") as stream:
         client.put_object(settings.minio_bucket, key, stream, size, content_type=content_type)
+
+
+def remove_object(key: str) -> None:
+    client.remove_object(settings.minio_bucket, key)
 
 
 def get_bytes(key: str) -> bytes:

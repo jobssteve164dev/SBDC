@@ -72,3 +72,25 @@ class ParseAccepted(BaseModel):
     task_id: uuid.UUID
     status: str
     enqueued: bool
+
+
+class PublicUserOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    email: str
+
+
+class SubmissionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    title: str
+    authors: str | None
+    reason: str
+    status: str
+    size_bytes: int
+    page_count: int
+    created_at: datetime
+
+
+class ReviewerSubmissionOut(SubmissionOut):
+    submitter_email: str
