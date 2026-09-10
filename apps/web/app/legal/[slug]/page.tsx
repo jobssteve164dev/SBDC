@@ -27,7 +27,7 @@ async function legalDocument(slug: string): Promise<LegalDocument | null> {
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params;
   const document = await legalDocument(slug);
-  return { title: `${document?.title ?? "法律信息"} · SBDC` };
+  return { title: `${document?.title ?? "法律信息"} · 科研诚信证据核查平台` };
 }
 
 function Body({ text }: { text: string }) {

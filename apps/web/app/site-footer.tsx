@@ -7,13 +7,15 @@ const legalLinks = [
 export function SiteFooter() {
   return (
     <footer className="site-footer">
-      <div className="footer-company">
-        <a className="footer-brand" href="https://szlk.ai" rel="noreferrer">SZLK LTD ↗</a>
-        <p>英国注册公司 16843016</p>
-        <p>128 City Road, London, EC1V 2NX, United Kingdom</p>
+      <div className="footer-inner">
+        <div className="footer-company">
+          <a className="footer-brand" href="https://szlk.ai" rel="noreferrer">SZLK LTD ↗</a>
+          <p>英国注册公司 16843016</p>
+          <p>128 City Road, London, EC1V 2NX, United Kingdom</p>
+        </div>
+        <nav aria-label="法律信息">{legalLinks.map(([label, slug]) => <a key={slug} href={`/legal/${slug}`}>{label}</a>)}</nav>
+        <p className="footer-note">科研诚信证据核查平台提供可回到原文复核的证据整理工具，不替代机构调查、同行评议或法律判断。</p>
       </div>
-      <nav aria-label="法律信息">{legalLinks.map(([label, slug]) => <a key={slug} href={`/legal/${slug}`}>{label}</a>)}</nav>
-      <p className="footer-note">SBDC 提供科研诚信复核所需的证据整理工具，不替代机构调查、同行评议或法律判断。</p>
     </footer>
   );
 }

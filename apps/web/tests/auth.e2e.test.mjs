@@ -28,10 +28,29 @@ test("主域名根路径直接展示公众营销页", async () => {
   const response = await fetch(`${baseUrl}/`, { redirect: "manual" });
   assert.equal(response.status, 200);
   const html = await response.text();
-  assert.match(html, /让论文审查/);
-  assert.match(html, /从猜测回到证据/);
+  assert.match(html, /科研诚信证据核查平台/);
+  assert.match(html, /Research Integrity Evidence Review Platform/);
+  assert.doesNotMatch(html, /<title>[^<]*SBDC/);
   assert.match(html, /href="\/submit"/);
   assert.match(html, /href="\/login"/);
+});
+
+test("投稿无需注册登录并允许选择是否公开", async () => {
+  const response = await fetch(`${baseUrl}/submit`);
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(html, /联系邮箱/);
+  assert.match(html, /公开这条投稿/);
+  assert.doesNotMatch(html, /创建投稿账号|登录投稿账号|注册并继续/);
+});
+
+test("公开投稿与审查公示拥有独立公开页面", async () => {
+  const submissions = await fetch(`${baseUrl}/public-submissions`);
+  assert.equal(submissions.status, 200);
+  assert.match(await submissions.text(), /公开投稿论文/);
+  const notices = await fetch(`${baseUrl}/review-notices`);
+  assert.equal(notices.status, 200);
+  assert.match(await notices.text(), /现有证据不足/);
 });
 
 test("未登录访问工作台会进入带原路径的登录页", async () => {
@@ -56,7 +75,7 @@ test("公众页展示完整法务入口与公司主体信息", async () => {
 test("鉴权配置有效时健康检查通过", async () => {
   const response = await fetch(`${baseUrl}/health`, { redirect: "manual" });
   assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { status: "ok" });
+  assert.deepEqual(await response.json(), { status: "ok", service: "web", api: "ok" });
 });
 
 test("未登录访问后端代理会被拒绝", async () => {
@@ -87,6 +106,7 @@ test("正确凭据建立会话并允许进入工作台", async () => {
   const workspaceHtml = await workspace.text();
   assert.match(workspaceHtml, /上传待检论文/);
   assert.match(workspaceHtml, /公众投稿论文/);
+  assert.match(workspaceHtml, /发布到审查公示/);
   assert.match(workspaceHtml, /href="\/backend\/submissions\/11111111-1111-1111-1111-111111111111\/content"/);
 
   const backend = await fetch(`${baseUrl}/backend/health`, {

@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { PublicSubmission } from "./public-submission";
 
 export const metadata: Metadata = {
-  title: "公众科研监督投稿 · SBDC",
+  title: "提交待核查论文 · 科研诚信证据核查平台",
   description: "提交你希望由科研诚信审查者核查的论文。",
 };
 

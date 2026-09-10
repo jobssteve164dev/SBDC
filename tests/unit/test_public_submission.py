@@ -4,22 +4,14 @@ from io import BytesIO
 
 import fitz
 import pytest
-from fastapi import HTTPException, Response, UploadFile
+from fastapi import HTTPException, UploadFile
 from starlette.requests import Request
 
 from sbdc_api import main
-from sbdc_api.models import PublicUser, ResearchSubmission
-from sbdc_api.public_auth import hash_password, normalize_email, verify_password
+from sbdc_api.models import ResearchSubmission
+from sbdc_api.public_auth import normalize_email
+from sbdc_api.schemas import PublicSubmissionOut
 from sbdc_api.storage import submission_storage_key
-
-
-def test_public_password_hash_is_salted_and_verifiable() -> None:
-    first = hash_password("a-correct-horse-battery-staple")
-    second = hash_password("a-correct-horse-battery-staple")
-
-    assert first != second
-    assert verify_password("a-correct-horse-battery-staple", first)
-    assert not verify_password("wrong-password-value", first)
 
 
 @pytest.mark.parametrize(
@@ -49,9 +41,8 @@ def test_submission_storage_key_never_uses_uploaded_filename() -> None:
 
 
 class FakeSession:
-    def __init__(self, user: PublicUser | None = None) -> None:
+    def __init__(self) -> None:
         self.added: list[object] = []
-        self.user = user
         self.commit_calls = 0
 
     def scalar(self, _statement):
@@ -61,8 +52,6 @@ class FakeSession:
         self.added.append(item)
 
     def get(self, model, item_id, **_kwargs):
-        if model is PublicUser:
-            return self.user
         return next((item for item in self.added if isinstance(item, model) and getattr(item, "id", None) == item_id), None)
 
     def flush(self) -> None:
@@ -83,29 +72,8 @@ class FakeSession:
             _item.created_at = datetime.now(UTC)
 
 
-def test_registration_issues_public_only_secure_session_cookie() -> None:
-    response = Response()
-    db = FakeSession()
-
-    account = main.register_public_user(
-        request=Request({"type": "http", "method": "POST", "path": "/", "headers": [], "client": ("127.0.0.1", 1)}),
-        response=response,
-        email=" Researcher@Example.org ",
-        password="correct-horse-battery-staple",
-        db=db,
-    )
-
-    assert account.email == "researcher@example.org"
-    cookie = response.headers["set-cookie"]
-    assert "sbdc_public_session=" in cookie
-    assert "HttpOnly" in cookie
-    assert "Secure" in cookie
-    assert "SameSite=lax" in cookie
-    assert any(item.__class__.__name__ == "PublicSession" for item in db.added)
-
-
 @pytest.mark.asyncio
-async def test_submission_validates_and_stores_a_real_pdf(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_anonymous_submission_validates_and_stores_a_real_pdf(monkeypatch: pytest.MonkeyPatch) -> None:
     pdf = fitz.open()
     pdf.new_page()
     payload = pdf.tobytes()
@@ -115,17 +83,17 @@ async def test_submission_validates_and_stores_a_real_pdf(monkeypatch: pytest.Mo
     monkeypatch.setattr(main, "put_file", lambda key, path, size, content_type: stored.update(
         key=key, size=size, content_type=content_type
     ))
-    user = PublicUser(id=uuid.uuid4(), email="researcher@example.org", password_hash="unused", is_active=True)
-    db = FakeSession(user)
+    db = FakeSession()
 
     result = await main.create_public_submission(
         request=Request({"type": "http", "method": "POST", "path": "/", "headers": [], "client": ("127.0.0.1", 1)}),
         title="一篇待核查论文",
         reason="论文结论与引用来源之间似乎存在不一致，需要复核。",
+        contact_email=" Researcher@Example.org ",
+        is_public=True,
         rights_confirmed=True,
         file=uploaded,
         authors="示例作者",
-        user=user,
         db=db,
     )
 
@@ -135,11 +103,26 @@ async def test_submission_validates_and_stores_a_real_pdf(monkeypatch: pytest.Mo
     assert stored["content_type"] == "application/pdf"
     assert "revealing-user-filename" not in str(stored["key"])
     assert any(isinstance(item, ResearchSubmission) for item in db.added)
-    assert user.quota_count == 1
-    assert user.quota_bytes == len(payload)
     submission = next(item for item in db.added if isinstance(item, ResearchSubmission))
     assert submission.status == "received"
+    assert submission.contact_email == "researcher@example.org"
+    assert submission.is_public is True
     assert submission.cleanup_after is None
+
+
+def test_public_submission_projection_never_exposes_contact_email() -> None:
+    item = ResearchSubmission(
+        id=uuid.uuid4(), contact_email="private@example.org", title="公开论文", authors="示例作者",
+        reason="公开说明只包含投稿者主动公开的核查理由。", is_public=True, rights_confirmed=True,
+        status="received", storage_key="submissions/example/source/example.pdf", sha256="0" * 64,
+        size_bytes=128, page_count=1, created_at=datetime.now(UTC),
+    )
+
+    payload = PublicSubmissionOut.model_validate(item).model_dump()
+
+    assert payload["title"] == "公开论文"
+    assert "contact_email" not in payload
+    assert "storage_key" not in payload
 
 
 def test_cross_site_public_write_is_rejected() -> None:
@@ -171,18 +154,39 @@ async def test_database_failure_removes_stored_submission(monkeypatch: pytest.Mo
                 raise RuntimeError("database unavailable")
 
     with pytest.raises(RuntimeError, match="database unavailable"):
-        active_user = PublicUser(id=uuid.uuid4(), email="test@example.org", password_hash="unused", is_active=True)
-        failing_db = FailingSession(active_user)
+        failing_db = FailingSession()
         await main.create_public_submission(
             request=Request({"type": "http", "method": "POST", "path": "/", "headers": [], "client": ("127.0.0.2", 1)}),
             title="待核查论文", reason="这是一段足够长的核查原因说明。", rights_confirmed=True,
-            file=uploaded, authors=None, user=active_user, db=failing_db,
+            contact_email="test@example.org", is_public=False,
+            file=uploaded, authors=None, db=failing_db,
         )
 
     assert len(removed) == 1
     assert removed[0].startswith("submissions/")
     submission = next(item for item in failing_db.added if isinstance(item, ResearchSubmission))
     assert submission.status == "purged"
-    assert submission.quota_released is True
-    assert active_user.quota_count == 0
-    assert active_user.quota_bytes == 0
+
+
+def test_reviewer_can_publish_and_withdraw_a_review_notice() -> None:
+    item = ResearchSubmission(
+        id=uuid.uuid4(), contact_email="private@example.org", title="待公示论文", reason="需要复核引用。",
+        is_public=False, rights_confirmed=True, status="received", storage_key="submissions/x/source/y.pdf",
+        sha256="0" * 64, size_bytes=128, page_count=1, created_at=datetime.now(UTC),
+    )
+    db = FakeSession()
+    db.add(item)
+
+    published = main.update_review_publication(
+        submission_id=item.id, publish=True, review_outcome="insufficient_evidence",
+        review_summary="现有材料不足以支持进一步结论，建议补充原始数据。", db=db,
+    )
+    assert published.review_published is True
+    assert published.review_published_at is not None
+
+    withdrawn = main.update_review_publication(
+        submission_id=item.id, publish=False, review_outcome="insufficient_evidence",
+        review_summary="现有材料不足以支持进一步结论，建议补充原始数据。", db=db,
+    )
+    assert withdrawn.review_published is False
+    assert withdrawn.review_published_at is None

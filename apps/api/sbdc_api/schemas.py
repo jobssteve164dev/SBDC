@@ -92,5 +92,29 @@ class SubmissionOut(BaseModel):
     created_at: datetime
 
 
+class PublicSubmissionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    title: str
+    authors: str | None
+    reason: str
+    created_at: datetime
+
+
+class PublicReviewNoticeOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    title: str
+    authors: str | None
+    review_outcome: str
+    review_summary: str
+    review_published_at: datetime
+
+
 class ReviewerSubmissionOut(SubmissionOut):
     submitter_email: str
+    is_public: bool
+    review_outcome: str | None
+    review_summary: str | None
+    review_published: bool
+    review_published_at: datetime | None

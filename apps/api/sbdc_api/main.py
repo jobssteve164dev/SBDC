@@ -30,7 +30,8 @@ from .public_rate_limit import public_rate_limiter
 from .queue import celery_client
 from .schemas import (
     AssetOut, ParseAccepted, ParsedDocumentOut, PublicUserOut, ReferenceOut,
-    ReviewerSubmissionOut, SubmissionOut, TaskCreate, TaskOut,
+    PublicReviewNoticeOut, PublicSubmissionOut, ReviewerSubmissionOut,
+    SubmissionOut, TaskCreate, TaskOut,
 )
 from .storage import ensure_bucket, put_file, remove_object, source_storage_key, stream_object, submission_storage_key
 
@@ -119,6 +120,9 @@ def cleanup_incomplete_submissions() -> None:
 
 def release_submission_quota(db: Session, item: ResearchSubmission) -> None:
     if item.quota_released:
+        return
+    if item.submitted_by_id is None:
+        item.quota_released = True
         return
     user = db.get(PublicUser, item.submitted_by_id, with_for_update=True, populate_existing=True)
     if user and item.created_at and user.quota_date == item.created_at.date():
@@ -216,11 +220,11 @@ def _client_key(request: Request) -> str:
 
 def trusted_public_write(request: Request) -> None:
     if request.headers.get("sec-fetch-site", "").lower() == "cross-site":
-        raise HTTPException(status_code=403, detail="请求来源无效，请从 SBDC 页面重试")
+        raise HTTPException(status_code=403, detail="请求来源无效，请从科研诚信证据核查平台页面重试")
     origin = request.headers.get("origin")
     allowed = {value.strip().rstrip("/") for value in settings.public_origins.split(",") if value.strip()}
     if not origin or origin.rstrip("/") not in allowed:
-        raise HTTPException(status_code=403, detail="请求来源无效，请从 SBDC 页面重试")
+        raise HTTPException(status_code=403, detail="请求来源无效，请从科研诚信证据核查平台页面重试")
 
 
 def require_internal_reviewer(
@@ -351,16 +355,21 @@ async def create_public_submission(
     request: Request,
     title: str = Form(...),
     reason: str = Form(...),
+    contact_email: str = Form(...),
+    is_public: bool = Form(default=False),
     rights_confirmed: bool = Form(...),
     file: UploadFile = File(...),
     authors: str | None = Form(default=None),
-    user: PublicUser = Depends(current_public_user),
     db: Session = Depends(get_db),
     _: None = Depends(trusted_public_write),
 ) -> SubmissionOut:
     title = title.strip()
     reason = reason.strip()
     authors = authors.strip() if authors else None
+    try:
+        contact_email = normalize_email(contact_email)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from None
     if not 2 <= len(title) <= 500 or not 10 <= len(reason) <= 4000:
         raise HTTPException(status_code=422, detail="请填写论文题名和至少 10 个字符的投稿说明")
     if authors and len(authors) > 1000:
@@ -369,7 +378,7 @@ async def create_public_submission(
         raise HTTPException(status_code=422, detail="请确认你有权提交该文件用于审查")
     if file.content_type not in {"application/pdf", "application/x-pdf"}:
         raise HTTPException(status_code=415, detail="仅支持 PDF 文件")
-    if not public_rate_limiter.allow(f"submit:{user.id}:{_client_key(request)}", limit=12, window_seconds=86400):
+    if not public_rate_limiter.allow(f"submit:{contact_email}:{_client_key(request)}", limit=12, window_seconds=86400):
         raise HTTPException(status_code=429, detail="今日投稿已达上限，请稍后再试")
 
     submission_id = uuid.uuid4()
@@ -403,23 +412,12 @@ async def create_public_submission(
         except Exception:
             raise HTTPException(status_code=422, detail="PDF 已损坏、加密或无法读取") from None
         key = submission_storage_key(str(submission_id), str(asset_id))
-        locked_user = db.get(PublicUser, user.id, with_for_update=True, populate_existing=True)
-        if locked_user is None or not locked_user.is_active:
-            raise HTTPException(status_code=401, detail="请先登录投稿账号")
-        quota_date = datetime.now(UTC).date()
-        if locked_user.quota_date != quota_date:
-            locked_user.quota_date = quota_date
-            locked_user.quota_count = 0
-            locked_user.quota_bytes = 0
-        if locked_user.quota_count >= 10 or locked_user.quota_bytes + size > 200 * 1024 * 1024:
-            raise HTTPException(status_code=429, detail="今日投稿已达上限，请稍后再试")
-        locked_user.quota_count += 1
-        locked_user.quota_bytes += size
         item = ResearchSubmission(
-            id=submission_id, submitted_by_id=user.id, title=title, authors=authors,
+            id=submission_id, submitted_by_id=None, contact_email=contact_email,
+            title=title, authors=authors, is_public=is_public,
             reason=reason, rights_confirmed=True, status="uploading", storage_key=key,
             sha256=digest.hexdigest(), size_bytes=size, page_count=page_count,
-            cleanup_after=datetime.now(UTC) + timedelta(hours=1), quota_released=False,
+            cleanup_after=datetime.now(UTC) + timedelta(hours=1), quota_released=True,
         )
         db.add(item)
         db.commit()
@@ -481,22 +479,82 @@ async def create_public_submission(
             os.unlink(temp_path)
 
 
+@app.get("/public/submissions/published", response_model=list[PublicSubmissionOut])
+def list_public_submissions(db: Session = Depends(get_db)) -> list[PublicSubmissionOut]:
+    items = db.scalars(
+        select(ResearchSubmission).where(
+            ResearchSubmission.status == "received", ResearchSubmission.is_public.is_(True),
+        ).order_by(ResearchSubmission.created_at.desc()).limit(100)
+    )
+    return [PublicSubmissionOut.model_validate(item) for item in items]
+
+
+@app.get("/public/review-notices", response_model=list[PublicReviewNoticeOut])
+def list_public_review_notices(db: Session = Depends(get_db)) -> list[PublicReviewNoticeOut]:
+    items = db.scalars(
+        select(ResearchSubmission).where(
+            ResearchSubmission.status == "received", ResearchSubmission.review_published.is_(True),
+        ).order_by(ResearchSubmission.review_published_at.desc()).limit(100)
+    )
+    return [PublicReviewNoticeOut.model_validate(item) for item in items]
+
+
 @app.get("/submissions", response_model=list[ReviewerSubmissionOut])
 def list_reviewer_submissions(
     db: Session = Depends(get_db),
     _: None = Depends(require_internal_reviewer),
 ) -> list[ReviewerSubmissionOut]:
-    rows = db.execute(
-        select(ResearchSubmission, PublicUser.email)
-        .join(PublicUser, PublicUser.id == ResearchSubmission.submitted_by_id)
+    items = db.scalars(
+        select(ResearchSubmission)
         .where(ResearchSubmission.status == "received")
         .order_by(ResearchSubmission.created_at.desc()).limit(200)
     )
     return [ReviewerSubmissionOut(
         id=item.id, title=item.title, authors=item.authors, reason=item.reason,
         status=item.status, size_bytes=item.size_bytes, page_count=item.page_count,
-        created_at=item.created_at, submitter_email=email,
-    ) for item, email in rows]
+        created_at=item.created_at, submitter_email=item.contact_email, is_public=item.is_public,
+        review_outcome=item.review_outcome, review_summary=item.review_summary,
+        review_published=item.review_published, review_published_at=item.review_published_at,
+    ) for item in items]
+
+
+REVIEW_OUTCOMES = {"needs_further_review", "insufficient_evidence", "no_issue_identified"}
+
+
+def reviewer_submission_response(item: ResearchSubmission) -> ReviewerSubmissionOut:
+    return ReviewerSubmissionOut(
+        id=item.id, title=item.title, authors=item.authors, reason=item.reason,
+        status=item.status, size_bytes=item.size_bytes, page_count=item.page_count,
+        created_at=item.created_at, submitter_email=item.contact_email, is_public=item.is_public,
+        review_outcome=item.review_outcome, review_summary=item.review_summary,
+        review_published=item.review_published, review_published_at=item.review_published_at,
+    )
+
+
+@app.post("/submissions/{submission_id}/publication", response_model=ReviewerSubmissionOut)
+def update_review_publication(
+    submission_id: uuid.UUID,
+    publish: bool = Form(...),
+    review_outcome: str = Form(...),
+    review_summary: str = Form(...),
+    db: Session = Depends(get_db),
+    _: None = Depends(require_internal_reviewer),
+) -> ReviewerSubmissionOut:
+    item = db.get(ResearchSubmission, submission_id, with_for_update=True, populate_existing=True)
+    if item is None or item.status != "received":
+        raise HTTPException(status_code=404, detail="投稿不存在")
+    summary = review_summary.strip()
+    if review_outcome not in REVIEW_OUTCOMES:
+        raise HTTPException(status_code=422, detail="请选择有效的审查结果")
+    if publish and not 10 <= len(summary) <= 2000:
+        raise HTTPException(status_code=422, detail="公示说明应为 10 至 2000 个字符")
+    item.review_outcome = review_outcome
+    item.review_summary = summary
+    item.review_published = publish
+    item.review_published_at = datetime.now(UTC) if publish else None
+    db.commit()
+    db.refresh(item)
+    return reviewer_submission_response(item)
 
 
 @app.get("/submissions/{submission_id}/content")

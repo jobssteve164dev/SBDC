@@ -144,12 +144,20 @@ class ResearchSubmission(Base):
     __tablename__ = "research_submissions"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    submitted_by_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("public_users.id", ondelete="RESTRICT"), index=True)
+    submitted_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("public_users.id", ondelete="RESTRICT"), index=True, nullable=True
+    )
+    contact_email: Mapped[str] = mapped_column(String(254), nullable=False)
     title: Mapped[str] = mapped_column(Text, nullable=False)
     authors: Mapped[str | None] = mapped_column(Text, nullable=True)
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(40), nullable=False, default="received", index=True)
     rights_confirmed: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    is_public: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
+    review_outcome: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    review_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    review_published: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
+    review_published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     storage_key: Mapped[str] = mapped_column(String(500), nullable=False, unique=True)
     sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)

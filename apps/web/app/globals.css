@@ -23,13 +23,18 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .skip-link:focus { transform: translateY(0); }
 
 .site-header {
-  height: 72px; padding: 0 max(24px, calc((100vw - 1240px) / 2)); display: flex; align-items: center;
-  justify-content: space-between; border-bottom: 1px solid rgba(23, 35, 30, 0.12); background: rgba(245, 243, 237, 0.94);
+  min-height: 76px; border-bottom: 1px solid rgba(23, 35, 30, 0.12); background: rgba(245, 243, 237, 0.96);
 }
+.header-inner { width: min(100% - 48px, 1240px); min-height: 76px; margin: 0 auto; display: flex; align-items: center; gap: 34px; }
 .brand { color: var(--ink); text-decoration: none; display: inline-flex; align-items: center; gap: 10px; font-weight: 800; letter-spacing: .1em; }
 .brand-mark { width: 31px; height: 31px; border-radius: 50%; display: grid; place-items: center; color: white; background: var(--green); font-family: Georgia, serif; letter-spacing: 0; }
-.header-note { font-size: 13px; color: var(--muted); }
-.header-actions { display: flex; align-items: center; gap: 20px; }
+.brand-name { display: grid; gap: 2px; letter-spacing: 0; white-space: nowrap; }
+.brand-name strong { font-size: 14px; }
+.brand-name small { color: var(--muted); font: 9px/1.2 Arial, sans-serif; letter-spacing: .035em; }
+.public-nav { margin-left: auto; display: flex; align-items: center; gap: 24px; }
+.public-nav a { min-height: 44px; display: inline-flex; align-items: center; color: var(--muted); font-size: 13px; text-decoration: none; }
+.public-nav a:hover { color: var(--green); }
+.header-actions { display: flex; align-items: center; gap: 12px; }
 .header-action { min-height: 44px; padding: 0 4px; border: 0; background: transparent; color: var(--green); cursor: pointer; font-weight: 700; }
 .header-action:hover, .back-link:hover { text-decoration: underline; text-underline-offset: 4px; }
 
@@ -133,6 +138,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .marketing-hero { max-width: 1240px; margin: 0 auto; padding: 92px 24px 100px; display: grid; grid-template-columns: 1.05fr .75fr; gap: 100px; align-items: center; }
 .marketing-hero h1, .value-section h2, .process-section h2, .submit-intro h1, .legal-shell h1 { font-family: Georgia, "Songti SC", serif; font-weight: 500; letter-spacing: -.035em; }
 .marketing-hero h1 { margin: 0 0 28px; font-size: clamp(52px, 6vw, 84px); line-height: 1.08; }
+.hero-lead { margin: -8px 0 14px; color: var(--green); font: 500 clamp(20px, 2vw, 28px)/1.4 Georgia, "Songti SC", serif; }
 .hero-actions { display: flex; align-items: center; gap: 28px; margin-top: 34px; }
 .primary-link { min-height: 52px; padding: 0 22px; display: inline-flex; align-items: center; gap: 22px; color: #fff; background: var(--green); text-decoration: none; font-weight: 750; }
 .text-link { min-height: 44px; display: inline-flex; align-items: center; color: var(--green); font-weight: 750; text-underline-offset: 5px; }
@@ -156,11 +162,12 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .process-copy ol { padding: 0; margin: 0 0 30px; list-style: none; }
 .process-copy li { padding: 18px 0; display: grid; grid-template-columns: 140px 1fr; border-top: 1px solid var(--line); }
 .process-copy li span { color: var(--muted); }
-.site-footer { padding: 58px max(24px, calc((100vw - 1240px) / 2)); display: grid; grid-template-columns: 1fr 1.25fr; gap: 48px 80px; color: #d5ddd9; background: #101a16; }
+.site-footer { padding: 58px 0; color: #d5ddd9; background: #101a16; }
+.footer-inner { width: min(100% - 48px, 1240px); margin: 0 auto; display: grid; grid-template-columns: 1fr 1.25fr; gap: 48px 80px; }
 .footer-brand { color: #fff; font: 500 25px Georgia, serif; text-decoration: none; }
 .footer-company p { margin: 10px 0 0; color: #98a39e; font-size: 12px; }
-.site-footer nav { display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px 24px; }
-.site-footer nav a { color: #d5ddd9; font-size: 13px; text-underline-offset: 4px; }
+.footer-inner nav { display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px 24px; }
+.footer-inner nav a { color: #d5ddd9; font-size: 13px; text-underline-offset: 4px; }
 .footer-note { grid-column: 1 / -1; padding-top: 25px; margin: 0; border-top: 1px solid #314039; color: #98a39e; font-size: 12px; }
 .submit-shell { max-width: 1120px; margin: 0 auto; padding: 76px 24px 100px; display: grid; grid-template-columns: 1fr 460px; gap: 90px; align-items: start; }
 .submit-intro { position: sticky; top: 46px; }
@@ -183,6 +190,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .file-field small { color: var(--muted); font-weight: 400; }
 .check-field { display: grid; grid-template-columns: 20px 1fr; gap: 10px; color: var(--muted); font-size: 12px; line-height: 1.55; }
 .check-field input { width: 18px; height: 18px; margin: 0; accent-color: var(--green); }
+.public-choice { padding: 14px; background: #f3f8f5; border: 1px solid #cbded4; }
+.public-choice span { display: grid; gap: 5px; }
+.public-choice strong { color: var(--ink); font-size: 14px; }
+.public-choice small { color: var(--muted); }
 .form-message { margin: 0; padding: 12px; color: var(--green); background: var(--green-light); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
 .form-message.error { color: var(--danger); background: #f6dcd6; }
 .account-row { display: flex; justify-content: space-between; gap: 16px; color: var(--muted); font-size: 12px; }
@@ -203,7 +214,28 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .queue-list small { color: var(--green); }
 .queue-list article footer { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
 .queue-list article footer a { color: var(--green); font-size: 13px; font-weight: 750; text-underline-offset: 4px; }
+.publication-form { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--line); display: grid; gap: 12px; }
+.publication-form label { display: grid; gap: 6px; color: var(--ink); font-size: 12px; font-weight: 750; }
+.publication-form select, .publication-form textarea { width: 100%; padding: 10px; border: 1px solid #aeb7b1; background: #fff; color: var(--ink); }
+.publication-form textarea { resize: vertical; line-height: 1.5; }
+.publication-form p { margin: 0; color: var(--green); }
+.publication-form p.error { color: var(--danger); }
+.publication-form button { min-height: 44px; border: 1px solid var(--green); background: transparent; color: var(--green); cursor: pointer; font-weight: 750; }
+.publication-form button:hover { color: white; background: var(--green); }
 .status-pill { color: var(--green); font-weight: 750; }
+.public-index { width: min(100% - 48px, 1240px); min-height: 65vh; margin: 0 auto; padding: 82px 0 110px; }
+.public-index > header { max-width: 780px; margin-bottom: 52px; }
+.public-index h1 { margin: 0 0 22px; font: 500 clamp(44px, 6vw, 72px)/1.12 Georgia, "Songti SC", serif; letter-spacing: -.035em; }
+.public-index > header > p:last-child { color: var(--muted); font-size: 16px; line-height: 1.8; }
+.public-card-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.public-card-list article { padding: 30px; background: var(--surface); border: 1px solid var(--line); box-shadow: 0 12px 34px rgba(28, 42, 34, .05); }
+.public-card-list h2 { margin: 23px 0 12px; font: 500 25px/1.35 Georgia, "Songti SC", serif; }
+.public-card-list p { color: var(--muted); line-height: 1.75; }
+.public-card-list small { display: block; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); line-height: 1.5; }
+.card-meta { display: flex; justify-content: space-between; gap: 18px; color: var(--muted); font-size: 12px; }
+.card-meta strong { color: var(--green); }
+.card-authors { color: var(--green)!important; font-size: 13px; font-weight: 700; }
+.section-actions { display: flex; align-items: center; gap: 22px; }
 .legal-shell { max-width: 780px; margin: 0 auto; padding: 76px 24px 100px; }
 .legal-shell header { margin-bottom: 60px; padding-bottom: 30px; border-bottom: 1px solid var(--line); }
 .legal-shell h1 { margin: 0 0 20px; font-size: clamp(42px, 6vw, 66px); }
@@ -214,6 +246,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .legal-unavailable { min-height: 50vh; display: grid; align-content: center; }
 
 @media (max-width: 900px) {
+  .header-inner { flex-wrap: wrap; padding: 12px 0; row-gap: 5px; }
+  .public-nav { order: 3; width: 100%; justify-content: space-between; border-top: 1px solid var(--line); }
   .login-shell { grid-template-columns: 1fr; max-width: 650px; padding-top: 52px; gap: 36px; }
   .home-shell { grid-template-columns: 1fr; padding-top: 42px; gap: 34px; }
   .hero { padding-top: 0; }
@@ -231,11 +265,15 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .value-grid article { min-height: auto; }
   .value-grid h3 { margin-top: 34px; }
   .submit-intro { position: static; }
+  .public-card-list { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 560px) {
-  .site-header { height: 62px; padding: 0 16px; }
-  .header-note { display: none; }
+  .site-header { min-height: 62px; }
+  .header-inner { width: calc(100% - 32px); min-height: 62px; }
+  .brand-name small { display: none; }
+  .public-nav { gap: 4px; overflow-x: auto; }
+  .public-nav a { padding-right: 10px; white-space: nowrap; }
   .header-actions { gap: 8px; }
   .login-shell { min-height: calc(100dvh - 62px); padding: 38px 16px; gap: 28px; align-content: start; }
   .login-intro h1 { font-size: 40px; }
@@ -266,7 +304,11 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .primary-link, .text-link { justify-content: center; }
   .evidence-preview, .public-form-card { padding: 25px 20px; }
   .process-copy li { grid-template-columns: 1fr; gap: 7px; }
-  .site-footer { grid-template-columns: 1fr; padding: 46px 16px; }
-  .site-footer nav { grid-template-columns: 1fr; }
+  .site-footer { padding: 46px 0; }
+  .footer-inner { width: calc(100% - 32px); grid-template-columns: 1fr; gap: 34px; }
+  .footer-inner nav { grid-template-columns: 1fr 1fr; }
   .queue-list { grid-template-columns: 1fr; }
+  .public-index { width: calc(100% - 32px); padding: 54px 0 76px; }
+  .public-card-list article { padding: 24px 20px; }
+  .section-actions { align-items: stretch; flex-direction: column; gap: 8px; }
 }

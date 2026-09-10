@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { getAuthConfig, safeNextPath, SESSION_COOKIE, verifySessionToken } from "../../lib/auth";
 
 export const metadata: Metadata = {
-  title: "登录 · SBDC",
+  title: "审查者登录 · 科研诚信证据核查平台",
 };
 
 type LoginPageProps = {

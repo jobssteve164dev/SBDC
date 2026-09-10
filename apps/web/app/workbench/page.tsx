@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { UploadPaper } from "../upload-paper";
 import { SubmissionQueue } from "./submission-queue";
 
-export const metadata: Metadata = { title: "审查工作台 · SBDC" };
+export const metadata: Metadata = { title: "审查工作台 · 科研诚信证据核查平台" };
 
 export default function WorkbenchPage() {
   return (
