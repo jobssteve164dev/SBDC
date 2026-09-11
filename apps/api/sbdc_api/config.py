@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -20,7 +20,10 @@ class Settings(BaseSettings):
     public_cookie_secure: bool = True
     public_session_days: int = 30
     public_origins: str = "https://sbdc.szlk.uk,http://localhost:3000,http://127.0.0.1:3100"
-    internal_api_secret: str = ""
+    internal_api_secret: str = Field(
+        default="",
+        validation_alias=AliasChoices("SBDC_INTERNAL_API_SECRET", "internal_api_secret"),
+    )
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
