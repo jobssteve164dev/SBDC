@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 
 const port = Number(process.env.SBDC_TEST_BACKEND_PORT ?? 3108);
+const internalSecret = process.env.SBDC_INTERNAL_API_SECRET ?? "0123456789abcdef0123456789abcdef";
 createServer((request, response) => {
   if (request.method === "GET" && request.url === "/health") {
     response.writeHead(200, { "content-type": "application/json" });
@@ -8,6 +9,11 @@ createServer((request, response) => {
     return;
   }
   if (request.method === "GET" && request.url === "/submissions") {
+    if (request.headers["x-sbdc-internal-secret"] !== internalSecret) {
+      response.writeHead(401, { "content-type": "application/json" });
+      response.end(JSON.stringify({ detail: "unauthorized" }));
+      return;
+    }
     response.writeHead(200, { "content-type": "application/json" });
     response.end(JSON.stringify([{
       id: "11111111-1111-1111-1111-111111111111",
@@ -21,6 +27,10 @@ createServer((request, response) => {
       review_summary: null,
       review_published: false,
       review_published_at: null,
+      terms_version: "2026-09-11.v1",
+      terms_locale: "zh-CN",
+      terms_notice_sha256: "0".repeat(64),
+      terms_accepted_at: "2026-09-10T00:00:00Z",
       created_at: "2026-09-10T00:00:00Z",
     }]));
     return;

@@ -14,7 +14,7 @@ export async function GET(_: Request, { params }: { params: Promise<{ id: string
   try {
     const response = await fetch(`${process.env.API_INTERNAL_URL ?? "http://localhost:8000"}/submissions/${id}/content`, {
       cache: "no-store",
-      headers: { "X-SBDC-Internal-Secret": process.env.SBDC_INTERNAL_API_SECRET ?? process.env.SBDC_SESSION_SECRET ?? "" },
+      headers: { "X-SBDC-Internal-Secret": process.env.SBDC_INTERNAL_API_SECRET ?? "" },
     });
     if (!response.ok || !response.body) {
       return NextResponse.json({ detail: response.status === 404 ? "投稿不存在" : "论文暂时无法载入" }, { status: response.status });

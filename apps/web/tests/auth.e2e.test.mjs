@@ -28,14 +28,52 @@ test("主域名根路径直接展示公众营销页", async () => {
   const response = await fetch(`${baseUrl}/`, { redirect: "manual" });
   assert.equal(response.status, 200);
   const html = await response.text();
-  assert.match(html, /科研诚信证据核查平台/);
+  assert.match(html, /论文科研诚信证据工作台/);
   assert.match(html, /SBDC · Source-Based Deep Check/);
   assert.match(html, /<title>SBDC · Source-Based Deep Check<\/title>/);
   assert.match(html, /<h1>SBDC<\/h1>/);
   assert.doesNotMatch(html, /Research Integrity Evidence Review Platform/);
-  assert.match(html, /SBDC(?:<!-- -->)? 是面向科研诚信审查的证据核查平台/);
+  assert.match(html, /SBDC(?:<!-- -->)? 为科研诚信审查整理可回到原文复核的证据/);
   assert.match(html, /href="\/submit"/);
   assert.match(html, /href="\/login"/);
+});
+
+test("英文站拥有独立可索引地址和完整英文导航", async () => {
+  const response = await fetch(`${baseUrl}/en`);
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(html, /<html lang="en"/);
+  assert.match(html, /Evidence before conclusions/);
+  assert.match(html, /href="\/en\/about"/);
+  assert.match(html, /hrefLang="zh-CN"/);
+  assert.match(html, /hrefLang="en"/);
+  assert.doesNotMatch(html, /我要投稿|公开投稿|审查公示|审查者登录/);
+});
+
+test("关于页面提供双语分享明信片与可提取问答", async () => {
+  for (const [path, phrase, filename] of [
+    ["/about", "什么是 SBDC", "sbdc-postcard-zh.png"],
+    ["/en/about", "What is SBDC", "sbdc-postcard-en.png"],
+  ]) {
+    const response = await fetch(`${baseUrl}${path}`);
+    assert.equal(response.status, 200);
+    const html = await response.text();
+    assert.match(html, new RegExp(phrase));
+    assert.match(html, new RegExp(`download="${filename}"`));
+    assert.match(html, /application\/ld\+json/);
+    assert.match(html, /FAQPage/);
+    assert.match(html, /Share postcard|分享明信片/);
+    assert.match(html, path === "/about" ? /href="\/en\/about"[^>]*>EN</ : /href="\/about"[^>]*>中文</);
+  }
+  assert.match(await (await fetch(`${baseUrl}/about`)).text(), /sbdc-postcard-zh\.png/);
+});
+
+test("SEO 基础文件覆盖中英文公开页面", async () => {
+  const robots = await (await fetch(`${baseUrl}/robots.txt`)).text();
+  assert.match(robots, /Sitemap: https:\/\/sbdc\.szlk\.uk\/sitemap\.xml/);
+  for (const path of ["/", "/about", "/submit", "/public-submissions", "/review-notices", "/en", "/en/about", "/en/submit", "/en/public-submissions", "/en/review-notices"]) {
+    assert.match(await (await fetch(`${baseUrl}/sitemap.xml`)).text(), new RegExp(`<loc>https://sbdc\\.szlk\\.uk${path === "/" ? "/" : path}</loc>`));
+  }
 });
 
 test("投稿无需注册登录并允许选择是否公开", async () => {
@@ -44,6 +82,13 @@ test("投稿无需注册登录并允许选择是否公开", async () => {
   const html = await response.text();
   assert.match(html, /联系邮箱/);
   assert.match(html, /公开这条投稿/);
+  assert.match(html, /name="terms_accepted"/);
+  assert.match(html, /href="\/legal\/terms"/);
+  assert.match(html, /产品法律补充/);
+  assert.match(html, /我同意服务条款、隐私政策与产品法律补充；并理解投稿或自动分析均不代表论文存在问题/);
+  assert.doesNotMatch(html, /name="terms_locale"/);
+  const englishHtml = await (await fetch(`${baseUrl}/en/submit`)).text();
+  assert.match(englishHtml, /I agree to the Terms, Privacy Policy and Product Legal Supplement; I understand that neither a submission nor automated analysis establishes wrongdoing/);
   assert.doesNotMatch(html, /创建投稿账号|登录投稿账号|注册并继续/);
 });
 
@@ -88,7 +133,7 @@ test("公众页展示完整法务入口与公司主体信息", async () => {
 test("鉴权配置有效时健康检查通过", async () => {
   const response = await fetch(`${baseUrl}/health`, { redirect: "manual" });
   assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { status: "ok", service: "web", api: "ok" });
+  assert.deepEqual(await response.json(), { status: "ok", service: "web", api: "ok", review_queue: "ok" });
 });
 
 test("未登录访问后端代理会被拒绝", async () => {
@@ -121,7 +166,13 @@ test("正确凭据建立会话并允许进入工作台", async () => {
   assert.match(workspaceHtml, /上传待检论文/);
   assert.match(workspaceHtml, /公众投稿论文/);
   assert.match(workspaceHtml, /发布到审查公示/);
+  assert.doesNotMatch(workspaceHtml, /投稿队列暂时无法载入/);
   assert.match(workspaceHtml, /href="\/backend\/submissions\/11111111-1111-1111-1111-111111111111\/content"/);
+
+  const englishTask = await fetch(`${baseUrl}/en/tasks/11111111-1111-1111-1111-111111111111`, { headers: { cookie } });
+  const englishTaskHtml = await englishTask.text();
+  assert.match(englishTaskHtml, /<meta name="robots" content="noindex, nofollow"/);
+  assert.match(englishTaskHtml, /<link rel="canonical" href="https:\/\/sbdc\.szlk\.uk\/en\/tasks\/review"/);
 
   const backend = await fetch(`${baseUrl}/backend/health`, {
     headers: { cookie },
@@ -148,7 +199,11 @@ test("站外返回地址会被收敛到工作台路径", async () => {
 test("被篡改的会话不能访问工作台", async () => {
   const response = await login();
   const cookie = cookieFrom(response);
-  const tampered = `${cookie.slice(0, -1)}${cookie.endsWith("a") ? "b" : "a"}`;
+  const [cookieName, token] = cookie.split("=");
+  const [payload, signature] = token.split(".");
+  const tamperedIndex = Math.floor(signature.length / 2);
+  const tamperedSignature = `${signature.slice(0, tamperedIndex)}${signature[tamperedIndex] === "a" ? "b" : "a"}${signature.slice(tamperedIndex + 1)}`;
+  const tampered = `${cookieName}=${payload}.${tamperedSignature}`;
 
   const workspace = await fetch(`${baseUrl}/workbench`, { headers: { cookie: tampered }, redirect: "manual" });
   assert.equal(workspace.status, 307);

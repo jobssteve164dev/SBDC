@@ -9,11 +9,15 @@
   --coral: #df684b;
   --danger: #a64232;
   --shadow: 0 22px 60px rgba(28, 42, 34, 0.09);
+  --site-width: 1240px;
 }
 
 * { box-sizing: border-box; }
 html { background: var(--paper); color: var(--ink); }
 body { margin: 0; font-family: Arial, "PingFang SC", "Microsoft YaHei", sans-serif; background: var(--paper); }
+.en-copy { display: none; }
+html[lang="en"] .zh-copy { display: none; }
+html[lang="en"] .en-copy { display: inline; }
 button, input, textarea { font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
 button { color: inherit; }
@@ -25,17 +29,17 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .site-header {
   min-height: 76px; border-bottom: 1px solid rgba(23, 35, 30, 0.12); background: rgba(245, 243, 237, 0.96);
 }
-.header-inner { width: min(100% - 48px, 1240px); min-height: 76px; margin: 0 auto; display: flex; align-items: center; gap: 34px; }
+.header-inner { width: min(100% - 48px, var(--site-width)); min-height: 76px; margin: 0 auto; display: flex; align-items: center; gap: 28px; }
 .brand { color: var(--ink); text-decoration: none; display: inline-flex; align-items: center; gap: 10px; font-weight: 800; letter-spacing: .1em; }
 .brand-mark { width: 31px; height: 31px; border-radius: 50%; display: grid; place-items: center; color: white; background: var(--green); font-family: Georgia, serif; letter-spacing: 0; }
 .brand-name { display: grid; gap: 2px; letter-spacing: 0; white-space: nowrap; }
 .brand-name strong { font-size: 14px; }
 .brand-name small { color: var(--muted); font: 9px/1.2 Arial, sans-serif; letter-spacing: .035em; }
-.public-nav { margin-left: auto; display: flex; align-items: center; gap: 24px; }
-.public-nav a { min-height: 44px; display: inline-flex; align-items: center; color: var(--muted); font-size: 13px; text-decoration: none; }
-.public-nav a:hover { color: var(--green); }
-.header-actions { display: flex; align-items: center; gap: 12px; }
-.header-action { min-height: 44px; padding: 0 4px; border: 0; background: transparent; color: var(--green); cursor: pointer; font-weight: 700; }
+.site-nav { margin-left: auto; display: flex; align-items: center; gap: 18px; }
+.site-nav a, .header-action { min-height: 44px; padding: 0; display: inline-flex; align-items: center; border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 13px; font-weight: 500; text-decoration: none; white-space: nowrap; }
+.site-nav a:hover, .header-action:hover { color: var(--green); }
+.site-nav form { display: contents; }
+.site-nav .language-link { min-width: 35px; justify-content: center; color: var(--green); font-weight: 750; border-left: 1px solid var(--line); padding-left: 16px; }
 .header-action:hover, .back-link:hover { text-decoration: underline; text-underline-offset: 4px; }
 
 .login-shell { min-height: calc(100dvh - 72px); max-width: 1040px; margin: 0 auto; padding: 80px 24px; display: grid; grid-template-columns: 1fr 420px; gap: 88px; align-items: center; }
@@ -163,7 +167,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .process-copy li { padding: 18px 0; display: grid; grid-template-columns: 140px 1fr; border-top: 1px solid var(--line); }
 .process-copy li span { color: var(--muted); }
 .site-footer { padding: 58px 0; color: #d5ddd9; background: #101a16; }
-.footer-inner { width: min(100% - 48px, 1240px); margin: 0 auto; display: grid; grid-template-columns: 1fr 1.25fr; gap: 48px 80px; }
+.footer-inner { width: min(100% - 48px, var(--site-width)); margin: 0 auto; display: grid; grid-template-columns: 1fr 1.25fr; gap: 48px 80px; }
 .footer-brand { color: #fff; font: 500 25px Georgia, serif; text-decoration: none; }
 .footer-company p { margin: 10px 0 0; color: #98a39e; font-size: 12px; }
 .footer-inner nav { display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px 24px; }
@@ -244,10 +248,38 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .legal-shell h2 { margin: 0 0 18px; font: 500 25px Georgia, "Songti SC", serif; }
 .legal-body p { color: #46514c; white-space: pre-wrap; line-height: 1.85; }
 .legal-unavailable { min-height: 50vh; display: grid; align-content: center; }
+.terms-consent { padding: 14px; border: 1px solid var(--line); background: #fbfaf6; }
+.terms-consent a { color: var(--green); text-underline-offset: 3px; }
+.terms-consent small { display: block; margin-top: 5px; }
+.consent-evidence { padding: 8px 10px; background: #f3f8f5; border-left: 3px solid var(--green); font-size: 12px!important; }
+
+.about-shell { width: min(100% - 48px, var(--site-width)); margin: 0 auto; padding: 86px 0 110px; }
+.about-hero { max-width: 930px; margin-bottom: 100px; }
+.about-hero h1 { margin: 0 0 28px; font: 500 clamp(48px, 6vw, 78px)/1.08 Georgia, "Songti SC", serif; letter-spacing: -.04em; text-wrap: balance; }
+.about-hero > p:last-child, .postcard-copy > p:last-child { max-width: 760px; color: var(--muted); font-size: 17px; line-height: 1.85; }
+.about-principles { padding: 72px; color: #f8f5ed; background: var(--ink); }
+.about-principles > h2, .faq-section > h2, .postcard-copy h2 { margin: 0 0 42px; font: 500 clamp(34px, 4vw, 54px)/1.16 Georgia, "Songti SC", serif; letter-spacing: -.03em; }
+.about-principles > div { display: grid; grid-template-columns: repeat(3, 1fr); gap: 34px; }
+.about-principles article { padding-top: 20px; border-top: 1px solid #526159; }
+.about-principles article span { color: #8ec8b1; font: 18px Georgia, serif; }
+.about-principles h3 { margin: 54px 0 14px; font: 500 23px Georgia, "Songti SC", serif; }
+.about-principles article p { margin: 0; color: #b9c1bd; line-height: 1.75; }
+.faq-section { max-width: 900px; padding: 100px 0; }
+.faq-section details { border-top: 1px solid var(--line); }
+.faq-section details:last-child { border-bottom: 1px solid var(--line); }
+.faq-section summary { padding: 22px 4px; cursor: pointer; font: 500 21px Georgia, "Songti SC", serif; }
+.faq-section details p { margin: -4px 36px 24px 4px; color: var(--muted); line-height: 1.8; }
+.postcard-section { display: grid; grid-template-columns: minmax(250px, .72fr) minmax(0, 1fr); gap: 34px 70px; align-items: end; padding-top: 80px; border-top: 1px solid var(--line); }
+.postcard-copy h2 { margin-bottom: 24px; }
+.postcard { margin: 0; box-shadow: var(--shadow); }
+.postcard img { display: block; width: 100%; height: auto; }
+.postcard-actions { grid-column: 2; display: flex; align-items: center; gap: 14px; }
+.postcard-actions .primary-link, .postcard-actions .secondary-button { min-height: 48px; }
+.postcard-actions span { color: var(--muted); font-size: 12px; }
 
 @media (max-width: 900px) {
   .header-inner { flex-wrap: wrap; padding: 12px 0; row-gap: 5px; }
-  .public-nav { order: 3; width: 100%; justify-content: space-between; border-top: 1px solid var(--line); }
+  .site-nav { order: 3; width: 100%; justify-content: flex-start; flex-wrap: wrap; border-top: 1px solid var(--line); }
   .login-shell { grid-template-columns: 1fr; max-width: 650px; padding-top: 52px; gap: 36px; }
   .home-shell { grid-template-columns: 1fr; padding-top: 42px; gap: 34px; }
   .hero { padding-top: 0; }
@@ -266,15 +298,17 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .value-grid h3 { margin-top: 34px; }
   .submit-intro { position: static; }
   .public-card-list { grid-template-columns: 1fr; }
+  .about-principles { padding: 52px 36px; }
+  .about-principles > div, .postcard-section { grid-template-columns: 1fr; }
+  .postcard-actions { grid-column: 1; }
 }
 
 @media (max-width: 560px) {
   .site-header { min-height: 62px; }
   .header-inner { width: calc(100% - 32px); min-height: 62px; }
   .brand-name small { display: none; }
-  .public-nav { gap: 4px; overflow-x: auto; }
-  .public-nav a { padding-right: 10px; white-space: nowrap; }
-  .header-actions { gap: 8px; }
+  .site-nav { gap: 4px 14px; overflow: visible; }
+  .site-nav .language-link { padding-left: 10px; }
   .login-shell { min-height: calc(100dvh - 62px); padding: 38px 16px; gap: 28px; align-content: start; }
   .login-intro h1 { font-size: 40px; }
   .login-intro > p:last-child { font-size: 15px; }
@@ -311,4 +345,12 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .public-index { width: calc(100% - 32px); padding: 54px 0 76px; }
   .public-card-list article { padding: 24px 20px; }
   .section-actions { align-items: stretch; flex-direction: column; gap: 8px; }
+  .about-shell { width: calc(100% - 32px); padding: 54px 0 76px; }
+  .about-hero { margin-bottom: 64px; }
+  .about-hero h1 { font-size: 44px; }
+  .about-principles { margin-inline: -16px; padding: 46px 20px; }
+  .about-principles h3 { margin-top: 28px; }
+  .faq-section { padding: 72px 0; }
+  .postcard-section { padding-top: 60px; }
+  .postcard-actions { align-items: stretch; flex-direction: column; }
 }

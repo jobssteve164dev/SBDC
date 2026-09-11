@@ -14,6 +14,15 @@ from sbdc_api.schemas import PublicSubmissionOut
 from sbdc_api.storage import submission_storage_key
 
 
+def submission_request(locale: str = "zh-CN") -> Request:
+    path = "/en/submit" if locale == "en" else "/submit"
+    return Request({
+        "type": "http", "method": "POST", "path": "/submissions",
+        "headers": [(b"referer", f"https://sbdc.szlk.uk{path}".encode())],
+        "client": ("127.0.0.1", 1),
+    })
+
+
 @pytest.mark.parametrize(
     ("raw", "expected"),
     [
@@ -86,12 +95,13 @@ async def test_anonymous_submission_validates_and_stores_a_real_pdf(monkeypatch:
     db = FakeSession()
 
     result = await main.create_public_submission(
-        request=Request({"type": "http", "method": "POST", "path": "/", "headers": [], "client": ("127.0.0.1", 1)}),
+        request=submission_request(),
         title="一篇待核查论文",
         reason="论文结论与引用来源之间似乎存在不一致，需要复核。",
         contact_email=" Researcher@Example.org ",
         is_public=True,
         rights_confirmed=True,
+        terms_accepted=True,
         file=uploaded,
         authors="示例作者",
         db=db,
@@ -107,7 +117,38 @@ async def test_anonymous_submission_validates_and_stores_a_real_pdf(monkeypatch:
     assert submission.status == "received"
     assert submission.contact_email == "researcher@example.org"
     assert submission.is_public is True
+    assert submission.terms_version == main.SUBMISSION_TERMS_VERSION
+    assert submission.terms_locale == "zh-CN"
+    assert submission.terms_accepted_at is not None
+    assert submission.terms_notice_sha256 == main.submission_notice_sha256("zh-CN")
     assert submission.cleanup_after is None
+
+
+@pytest.mark.asyncio
+async def test_submission_rejects_missing_terms_acceptance() -> None:
+    uploaded = UploadFile(filename="paper.pdf", file=BytesIO(b"%PDF-invalid"), headers={"content-type": "application/pdf"})
+    with pytest.raises(HTTPException) as error:
+        await main.create_public_submission(
+            request=submission_request(),
+            title="待核查论文", reason="这是一段足够长的核查原因说明。", rights_confirmed=True,
+            terms_accepted=False, contact_email="test@example.org",
+            is_public=False, file=uploaded, authors=None, db=FakeSession(),
+        )
+    assert error.value.status_code == 422
+    assert "条款" in error.value.detail
+
+
+def test_submission_terms_language_is_derived_from_the_page_url() -> None:
+    assert main.submission_terms_locale(submission_request("zh-CN")) == "zh-CN"
+    assert main.submission_terms_locale(submission_request("en")) == "en"
+
+    forged = Request({
+        "type": "http", "method": "POST", "path": "/submissions",
+        "headers": [(b"referer", b"https://attacker.example/en/submit")],
+    })
+    with pytest.raises(HTTPException) as error:
+        main.submission_terms_locale(forged)
+    assert error.value.status_code == 403
 
 
 def test_public_submission_projection_never_exposes_contact_email() -> None:
@@ -156,8 +197,9 @@ async def test_database_failure_removes_stored_submission(monkeypatch: pytest.Mo
     with pytest.raises(RuntimeError, match="database unavailable"):
         failing_db = FailingSession()
         await main.create_public_submission(
-            request=Request({"type": "http", "method": "POST", "path": "/", "headers": [], "client": ("127.0.0.2", 1)}),
+            request=submission_request(),
             title="待核查论文", reason="这是一段足够长的核查原因说明。", rights_confirmed=True,
+            terms_accepted=True,
             contact_email="test@example.org", is_public=False,
             file=uploaded, authors=None, db=failing_db,
         )

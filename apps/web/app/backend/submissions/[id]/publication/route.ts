@@ -17,7 +17,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   try {
     const response = await fetch(`${process.env.API_INTERNAL_URL ?? "http://localhost:8000"}/submissions/${id}/publication`, {
       method: "POST", cache: "no-store", body: await request.formData(),
-      headers: { "X-SBDC-Internal-Secret": process.env.SBDC_INTERNAL_API_SECRET ?? process.env.SBDC_SESSION_SECRET ?? "" },
+      headers: { "X-SBDC-Internal-Secret": process.env.SBDC_INTERNAL_API_SECRET ?? "" },
     });
     return NextResponse.json(await response.json(), { status: response.status });
   } catch {

@@ -18,7 +18,7 @@ import {
 type LoginError = "configuration" | "credentials" | "rate_limit";
 
 function loginRedirect(error: LoginError, next: string, retryAfter = 0) {
-  const location = new URL("/login", "https://sbdc.local");
+  const location = new URL(next === "/en" || next.startsWith("/en/") ? "/en/login" : "/login", "https://sbdc.local");
   location.searchParams.set("error", error);
   if (next !== "/workbench") location.searchParams.set("next", next);
   const headers: Record<string, string> = { location: `${location.pathname}${location.search}` };

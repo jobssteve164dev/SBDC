@@ -1,33 +1,45 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import "./globals.css";
 import { SessionAction } from "./session-action";
 import { SiteFooter } from "./site-footer";
 import { PRODUCT_NAME, PRODUCT_NAME_EN } from "./brand";
+import { pageMetadata, pathFor } from "./i18n";
+import { getRequestLocale, getRequestPath } from "../lib/request-locale";
 
-export const metadata: Metadata = {
-  title: `${PRODUCT_NAME} · ${PRODUCT_NAME_EN}`,
-  description: "解析论文结构和参考文献，形成可回到原文复核的检查基础。",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const locale = await getRequestLocale();
+  return pageMetadata(locale, "/", `${PRODUCT_NAME} · ${PRODUCT_NAME_EN}`, locale === "en"
+    ? "Evidence-led research integrity review with traceable source locations and human decisions."
+    : "面向科研诚信审查的证据工作台，让问题、依据与人工复核都能回到原文。");
+}
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  const [locale, requestPath] = await Promise.all([getRequestLocale(), getRequestPath()]);
+  const en = locale === "en";
+  const alternateLanguagePath = en ? (requestPath.slice(3) || "/") : pathFor("en", requestPath);
   return (
-    <html lang="zh-CN">
+    <html lang={locale}>
       <body>
-        <a className="skip-link" href="#main-content">跳到主要内容</a>
+        <a className="skip-link" href="#main-content">{en ? "Skip to main content" : "跳到主要内容"}</a>
         <header className="site-header">
           <div className="header-inner">
-            <a className="brand" href="/" aria-label={`返回${PRODUCT_NAME}首页`}>
+            <Link className="brand" href={pathFor(locale, "/")} aria-label={en ? `Return to ${PRODUCT_NAME} home` : `返回${PRODUCT_NAME}首页`}>
               <span className="brand-mark">S</span>
               <span className="brand-name"><strong>{PRODUCT_NAME}</strong><small>{PRODUCT_NAME_EN}</small></span>
-            </a>
-            <nav className="public-nav" aria-label="主要导航">
-              <a href="/submit">我要投稿</a><a href="/public-submissions">公开投稿</a><a href="/review-notices">审查公示</a>
+            </Link>
+            <nav className="site-nav" aria-label={en ? "Primary navigation" : "主要导航"}>
+              <Link href={pathFor(locale, "/submit")}>{en ? "Submit" : "我要投稿"}</Link>
+              <Link href={pathFor(locale, "/public-submissions")}>{en ? "Public submissions" : "公开投稿"}</Link>
+              <Link href={pathFor(locale, "/review-notices")}>{en ? "Review notices" : "审查公示"}</Link>
+              <Link href={pathFor(locale, "/about")}>{en ? "About" : "关于"}</Link>
+              <SessionAction locale={locale} />
+              <Link className="language-link" href={alternateLanguagePath} hrefLang={en ? "zh-CN" : "en"}>{en ? "中文" : "EN"}</Link>
             </nav>
-            <div className="header-actions"><SessionAction /></div>
           </div>
         </header>
         {children}
-        <SiteFooter />
+        <SiteFooter locale={locale} />
       </body>
     </html>
   );

@@ -41,11 +41,13 @@ jobs:
           SBDC_ADMIN_USERNAME: reviewer
           SBDC_ADMIN_PASSWORD: ci-only-password
           SBDC_SESSION_SECRET: ci-only-session-secret-with-32-characters
+          SBDC_INTERNAL_API_SECRET: ci-only-internal-secret-with-32-characters
       - name: Verify authentication boundary
         env:
           SBDC_ADMIN_USERNAME: reviewer
           SBDC_ADMIN_PASSWORD: ci-only-password
           SBDC_SESSION_SECRET: ci-only-session-secret-with-32-characters
+          SBDC_INTERNAL_API_SECRET: ci-only-internal-secret-with-32-characters
         run: |
           cp -R .next/static .next/standalone/.next/static
           node tests/backend-stub.mjs &

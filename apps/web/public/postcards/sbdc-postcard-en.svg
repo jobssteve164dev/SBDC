@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">SBDC sharing postcard</title><desc id="desc">Evidence before conclusions. Take every research concern back to its source.</desc>
+  <rect width="1200" height="630" fill="#17231e"/><path d="M0 500C260 420 420 610 720 500s330-45 480-130v260H0Z" fill="#155c45"/>
+  <circle cx="1005" cy="125" r="92" fill="#df684b"/><circle cx="1005" cy="125" r="49" fill="#17231e"/><text x="1005" y="151" fill="#fffefa" font-family="Georgia,serif" font-size="72" text-anchor="middle">S</text>
+  <text x="92" y="112" fill="#8ec8b1" font-family="Arial,sans-serif" font-size="22" font-weight="700" letter-spacing="5">SBDC · SOURCE-BASED DEEP CHECK</text>
+  <text x="92" y="252" fill="#fffefa" font-family="Georgia,serif" font-size="62">Evidence before conclusions</text>
+  <text x="92" y="328" fill="#d5ddd9" font-family="Arial,sans-serif" font-size="28">Take every research concern back to its source.</text>
+  <line x1="92" y1="402" x2="585" y2="402" stroke="#8ec8b1"/><text x="92" y="452" fill="#d5ddd9" font-family="Arial,sans-serif" font-size="22">Find concerns · Inspect evidence · Review as a person</text>
+  <text x="92" y="565" fill="#fffefa" font-family="Arial,sans-serif" font-size="25" font-weight="700">sbdc.szlk.uk/en</text>
+</svg>

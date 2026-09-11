@@ -9,6 +9,7 @@ from datetime import UTC, datetime, timedelta
 import secrets
 import hmac
 import logging
+from urllib.parse import urlsplit
 
 import fitz
 from fastapi import Cookie, Depends, FastAPI, File, Form, Header, HTTPException, Request, Response, UploadFile, status
@@ -203,10 +204,34 @@ def task_response(db: Session, task: PaperTask) -> TaskOut:
 
 @app.get("/health")
 def health() -> dict[str, str]:
+    if len(settings.internal_api_secret) < 32:
+        raise HTTPException(status_code=503, detail="审查服务认证尚未正确配置")
     return {"status": "ok"}
 
 
 PUBLIC_SESSION_COOKIE = "sbdc_public_session"
+SUBMISSION_TERMS_VERSION = "2026-09-11.v1"
+SUBMISSION_NOTICES = {
+    "zh-CN": "我同意服务条款、隐私政策与产品法律补充；并理解投稿或自动分析均不代表论文存在问题，SBDC 不替代机构调查、同行评议或法律判断。",
+    "en": "I agree to the Terms, Privacy Policy and Product Legal Supplement; I understand that neither a submission nor automated analysis establishes wrongdoing and that SBDC does not replace institutional investigation, peer review or legal advice.",
+}
+
+
+def submission_notice_sha256(locale: str) -> str:
+    return hashlib.sha256(SUBMISSION_NOTICES[locale].encode()).hexdigest()
+
+
+def submission_terms_locale(request: Request) -> str:
+    parsed = urlsplit(request.headers.get("referer", ""))
+    origin = f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
+    allowed = {value.strip().rstrip("/") for value in settings.public_origins.split(",") if value.strip()}
+    if origin not in allowed:
+        raise HTTPException(status_code=403, detail="无法确认投稿条款页面，请从 SBDC 投稿页重试")
+    if parsed.path == "/en/submit":
+        return "en"
+    if parsed.path == "/submit":
+        return "zh-CN"
+    raise HTTPException(status_code=422, detail="投稿条款页面无效")
 
 
 def _token_hash(token: str) -> str:
@@ -220,11 +245,11 @@ def _client_key(request: Request) -> str:
 
 def trusted_public_write(request: Request) -> None:
     if request.headers.get("sec-fetch-site", "").lower() == "cross-site":
-        raise HTTPException(status_code=403, detail="请求来源无效，请从科研诚信证据核查平台页面重试")
+        raise HTTPException(status_code=403, detail="请求来源无效，请从 SBDC 页面重试")
     origin = request.headers.get("origin")
     allowed = {value.strip().rstrip("/") for value in settings.public_origins.split(",") if value.strip()}
     if not origin or origin.rstrip("/") not in allowed:
-        raise HTTPException(status_code=403, detail="请求来源无效，请从科研诚信证据核查平台页面重试")
+        raise HTTPException(status_code=403, detail="请求来源无效，请从 SBDC 页面重试")
 
 
 def require_internal_reviewer(
@@ -358,6 +383,7 @@ async def create_public_submission(
     contact_email: str = Form(...),
     is_public: bool = Form(default=False),
     rights_confirmed: bool = Form(...),
+    terms_accepted: bool = Form(...),
     file: UploadFile = File(...),
     authors: str | None = Form(default=None),
     db: Session = Depends(get_db),
@@ -376,6 +402,9 @@ async def create_public_submission(
         raise HTTPException(status_code=422, detail="作者信息不能超过 1000 个字符")
     if not rights_confirmed:
         raise HTTPException(status_code=422, detail="请确认你有权提交该文件用于审查")
+    if not terms_accepted:
+        raise HTTPException(status_code=422, detail="请阅读并同意投稿条款")
+    terms_locale = submission_terms_locale(request)
     if file.content_type not in {"application/pdf", "application/x-pdf"}:
         raise HTTPException(status_code=415, detail="仅支持 PDF 文件")
     if not public_rate_limiter.allow(f"submit:{contact_email}:{_client_key(request)}", limit=12, window_seconds=86400):
@@ -416,6 +445,8 @@ async def create_public_submission(
             id=submission_id, submitted_by_id=None, contact_email=contact_email,
             title=title, authors=authors, is_public=is_public,
             reason=reason, rights_confirmed=True, status="uploading", storage_key=key,
+            terms_version=SUBMISSION_TERMS_VERSION, terms_locale=terms_locale,
+            terms_notice_sha256=submission_notice_sha256(terms_locale), terms_accepted_at=datetime.now(UTC),
             sha256=digest.hexdigest(), size_bytes=size, page_count=page_count,
             cleanup_after=datetime.now(UTC) + timedelta(hours=1), quota_released=True,
         )
@@ -515,6 +546,8 @@ def list_reviewer_submissions(
         created_at=item.created_at, submitter_email=item.contact_email, is_public=item.is_public,
         review_outcome=item.review_outcome, review_summary=item.review_summary,
         review_published=item.review_published, review_published_at=item.review_published_at,
+        terms_version=item.terms_version, terms_locale=item.terms_locale,
+        terms_notice_sha256=item.terms_notice_sha256, terms_accepted_at=item.terms_accepted_at,
     ) for item in items]
 
 
@@ -528,6 +561,8 @@ def reviewer_submission_response(item: ResearchSubmission) -> ReviewerSubmission
         created_at=item.created_at, submitter_email=item.contact_email, is_public=item.is_public,
         review_outcome=item.review_outcome, review_summary=item.review_summary,
         review_published=item.review_published, review_published_at=item.review_published_at,
+        terms_version=item.terms_version, terms_locale=item.terms_locale,
+        terms_notice_sha256=item.terms_notice_sha256, terms_accepted_at=item.terms_accepted_at,
     )
 
 

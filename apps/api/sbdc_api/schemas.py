@@ -118,3 +118,7 @@ class ReviewerSubmissionOut(SubmissionOut):
     review_summary: str | None
     review_published: bool
     review_published_at: datetime | None
+    terms_version: str | None
+    terms_locale: str | None
+    terms_notice_sha256: str | None
+    terms_accepted_at: datetime | None
