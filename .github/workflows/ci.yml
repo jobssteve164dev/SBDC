@@ -50,6 +50,8 @@ jobs:
           SBDC_INTERNAL_API_SECRET: ci-only-internal-secret-with-32-characters
         run: |
           cp -R .next/static .next/standalone/.next/static
+          mkdir -p .next/standalone/public
+          cp -R public/. .next/standalone/public/
           node tests/backend-stub.mjs &
           backend_pid=$!
           HOSTNAME=127.0.0.1 PORT=3107 API_INTERNAL_URL=http://127.0.0.1:3108 node .next/standalone/server.js &
@@ -60,3 +62,13 @@ jobs:
             sleep 1
           done
           SBDC_TEST_BASE_URL=http://127.0.0.1:3107 npm run test:e2e
+      - name: Verify final container assets
+        run: |
+          docker build --build-arg API_INTERNAL_URL=http://127.0.0.1:3108 -t sbdc-web-ci .
+          docker run --rm -d --name sbdc-web-ci -p 3109:3000 sbdc-web-ci
+          trap 'docker stop sbdc-web-ci' EXIT
+          for attempt in {1..20}; do
+            if wget -q --spider http://127.0.0.1:3109/about; then break; fi
+            sleep 1
+          done
+          SBDC_TEST_BASE_URL=http://127.0.0.1:3109 node --test --test-name-pattern="关于页面" tests/auth.e2e.test.mjs

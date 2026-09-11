@@ -66,6 +66,13 @@ test("关于页面提供双语分享明信片与可提取问答", async () => {
     assert.match(html, path === "/about" ? /href="\/en\/about"[^>]*>EN</ : /href="\/about"[^>]*>中文</);
   }
   assert.match(await (await fetch(`${baseUrl}/about`)).text(), /sbdc-postcard-zh\.png/);
+
+  for (const postcard of ["/postcards/sbdc-postcard-zh.png", "/postcards/sbdc-postcard-en.png"]) {
+    const response = await fetch(`${baseUrl}${postcard}`);
+    assert.equal(response.status, 200, `${postcard} should be downloadable`);
+    assert.equal(response.headers.get("content-type"), "image/png");
+    assert.ok((await response.arrayBuffer()).byteLength > 10_000);
+  }
 });
 
 test("SEO 基础文件覆盖中英文公开页面", async () => {
