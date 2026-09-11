@@ -31,7 +31,7 @@ export function Postcard({ locale }: { locale: Locale }) {
 
   return <section className="postcard-section" aria-labelledby="postcard-title">
     <div className="postcard-copy"><p className="eyebrow">{en ? "Share SBDC" : "分享 SBDC"}</p><h2 id="postcard-title">{en ? "Send a reviewable idea further" : "让可复核的科研监督走得更远"}</h2><p>{en ? "Save the postcard or share this page with someone who cares about evidence-led research integrity review." : "保存这张明信片，或把页面分享给同样关心科研诚信与证据复核的人。"}</p></div>
-    <figure className="postcard"><img src={source} width="1200" height="630" alt={en ? "SBDC sharing postcard: Evidence before conclusions" : "SBDC 分享明信片：证据先于结论"} /></figure>
+    <figure className="postcard"><img src={source} width="1200" height="630" alt={en ? "SBDC sharing postcard with a QR code: Evidence before conclusions" : "带二维码的 SBDC 分享明信片：证据先于结论"} /></figure>
     <div className="postcard-actions"><a className="primary-link" href={source} download={filename}>{en ? "Save postcard" : "保存明信片"}</a><button className="secondary-button" type="button" onClick={share}>{en ? "Share postcard" : "分享明信片"}</button><span role="status" aria-live="polite">{status}</span></div>
   </section>;
 }

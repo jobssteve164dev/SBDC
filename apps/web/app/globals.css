@@ -170,7 +170,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .footer-inner { width: min(100% - 48px, var(--site-width)); margin: 0 auto; display: grid; grid-template-columns: 1fr 1.25fr; gap: 48px 80px; }
 .footer-brand { color: #fff; font: 500 25px Georgia, serif; text-decoration: none; }
 .footer-company p { margin: 10px 0 0; color: #98a39e; font-size: 12px; }
-.footer-inner nav { display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px 24px; }
+.footer-inner nav { display: grid; grid-template-columns: repeat(2, max-content); justify-self: end; justify-items: end; gap: 15px 24px; text-align: right; }
 .footer-inner nav a { color: #d5ddd9; font-size: 13px; text-underline-offset: 4px; }
 .footer-note { grid-column: 1 / -1; padding-top: 25px; margin: 0; border-top: 1px solid #314039; color: #98a39e; font-size: 12px; }
 .submit-shell { max-width: 1120px; margin: 0 auto; padding: 76px 24px 100px; display: grid; grid-template-columns: 1fr 460px; gap: 90px; align-items: start; }
@@ -340,7 +340,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .process-copy li { grid-template-columns: 1fr; gap: 7px; }
   .site-footer { padding: 46px 0; }
   .footer-inner { width: calc(100% - 32px); grid-template-columns: 1fr; gap: 34px; }
-  .footer-inner nav { grid-template-columns: 1fr 1fr; }
+  .footer-inner nav { max-width: 100%; grid-template-columns: repeat(2, minmax(0, max-content)); }
   .queue-list { grid-template-columns: 1fr; }
   .public-index { width: calc(100% - 32px); padding: 54px 0 76px; }
   .public-card-list article { padding: 24px 20px; }
@@ -353,4 +353,35 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .faq-section { padding: 72px 0; }
   .postcard-section { padding-top: 60px; }
   .postcard-actions { align-items: stretch; flex-direction: column; }
+}
+
+.login-shell,
+.home-shell,
+.workspace-shell,
+.marketing-hero,
+.process-section,
+.submit-shell,
+.public-index,
+.legal-shell,
+.about-shell {
+  width: min(100% - 48px, var(--site-width));
+  max-width: none;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.legal-shell > * { max-width: 780px; }
+
+@media (max-width: 560px) {
+  .login-shell,
+  .home-shell,
+  .workspace-shell,
+  .marketing-hero,
+  .process-section,
+  .submit-shell,
+  .public-index,
+  .legal-shell,
+  .about-shell { width: calc(100% - 32px); }
 }

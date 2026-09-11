@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { access } from "node:fs/promises";
 import test from "node:test";
+import { chromium } from "playwright-core";
 
 const baseUrl = process.env.SBDC_TEST_BASE_URL ?? "http://127.0.0.1:3000";
 const username = process.env.SBDC_ADMIN_USERNAME ?? "reviewer";
@@ -22,6 +24,17 @@ async function login(overrides = {}) {
     body,
     redirect: "manual",
   });
+}
+
+async function chromiumExecutable() {
+  for (const candidate of [process.env.CHROMIUM_PATH, "/usr/bin/chromium", "/usr/bin/google-chrome", "/usr/bin/google-chrome-stable"]) {
+    if (!candidate) continue;
+    try {
+      await access(candidate);
+      return candidate;
+    } catch {}
+  }
+  return null;
 }
 
 test("主域名根路径直接展示公众营销页", async () => {
@@ -135,6 +148,99 @@ test("公众页展示完整法务入口与公司主体信息", async () => {
   assert.match(html, /SZLK LTD/);
   assert.match(html, /16843016/);
   assert.match(html, /https:\/\/szlk\.ai/);
+});
+
+test("页脚法律入口在桌面与手机视口都右对齐且不溢出", async (t) => {
+  const executablePath = await chromiumExecutable();
+  if (!executablePath) {
+    t.skip("Chromium unavailable");
+    return;
+  }
+
+  const browser = await chromium.launch({ executablePath, headless: true, args: ["--no-sandbox"] });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    for (const path of ["/", "/en"]) {
+      await page.goto(`${baseUrl}${path}`, { waitUntil: "networkidle" });
+      for (const width of [1280, 375]) {
+        await page.setViewportSize({ width, height: 900 });
+        const layout = await page.locator("footer nav").evaluate((nav) => {
+          const rect = nav.getBoundingClientRect();
+          return {
+            textAlign: getComputedStyle(nav).textAlign,
+            withinViewport: rect.left >= 0 && rect.right <= document.documentElement.clientWidth,
+            pageWithinViewport: document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+          };
+        });
+        assert.equal(layout.textAlign, "right");
+        assert.equal(layout.withinViewport, true);
+        assert.equal(layout.pageWithinViewport, true);
+      }
+    }
+  } finally {
+    await browser.close();
+  }
+});
+
+test("各页面内容边界与上下导航栏保持一致", async (t) => {
+  const executablePath = await chromiumExecutable();
+  if (!executablePath) {
+    t.skip("Chromium unavailable");
+    return;
+  }
+
+  const pages = [
+    ["/", ".marketing-hero"],
+    ["/about", ".about-shell"],
+    ["/submit", ".submit-shell"],
+    ["/public-submissions", ".public-index"],
+    ["/review-notices", ".public-index"],
+    ["/login", ".login-shell"],
+    ["/legal/terms", ".legal-shell"],
+    ["/en/about", ".about-shell"],
+  ];
+  const browser = await chromium.launch({ executablePath, headless: true, args: ["--no-sandbox"] });
+  try {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    const assertAligned = async (path, contentSelector, width) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`${baseUrl}${path}`, { waitUntil: "networkidle" });
+      const edges = await page.locator(contentSelector).evaluate((content) => {
+        const header = document.querySelector(".header-inner");
+        const footer = document.querySelector(".footer-inner");
+        assertElement(header, ".header-inner");
+        assertElement(footer, ".footer-inner");
+        const contentRect = content.getBoundingClientRect();
+        const headerRect = header.getBoundingClientRect();
+        const footerRect = footer.getBoundingClientRect();
+        return {
+          content: [contentRect.left, contentRect.right],
+          header: [headerRect.left, headerRect.right],
+          footer: [footerRect.left, footerRect.right],
+        };
+
+        function assertElement(value, selector) {
+          if (!(value instanceof HTMLElement)) throw new Error(`${selector} not found`);
+        }
+      });
+      assert.deepEqual(edges.content.map(Math.round), edges.header.map(Math.round), `${path} should align with header at ${width}px`);
+      assert.deepEqual(edges.content.map(Math.round), edges.footer.map(Math.round), `${path} should align with footer at ${width}px`);
+    };
+
+    for (const width of [1280, 375]) {
+      for (const [path, contentSelector] of pages) await assertAligned(path, contentSelector, width);
+    }
+    await context.request.post(`${baseUrl}/auth/login`, {
+      form: { username, password, next: "/workbench" },
+      maxRedirects: 0,
+    });
+    for (const width of [1280, 375]) {
+      for (const path of ["/workbench", "/en/workbench"]) await assertAligned(path, ".home-shell", width);
+    }
+  } finally {
+    await browser.close();
+  }
 });
 
 test("鉴权配置有效时健康检查通过", async () => {
