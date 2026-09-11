@@ -372,8 +372,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   padding-right: 0;
 }
 
-.legal-shell > * { max-width: 780px; }
-
 @media (max-width: 560px) {
   .login-shell,
   .home-shell,

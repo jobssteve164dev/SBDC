@@ -3,9 +3,10 @@ import Link from "next/link";
 import "./globals.css";
 import { SessionAction } from "./session-action";
 import { SiteFooter } from "./site-footer";
+import { LanguageLink } from "./language-link";
 import { PRODUCT_NAME, PRODUCT_NAME_EN } from "./brand";
 import { pageMetadata, pathFor } from "./i18n";
-import { getRequestLocale, getRequestPath } from "../lib/request-locale";
+import { getRequestLocale } from "../lib/request-locale";
 
 export async function generateMetadata(): Promise<Metadata> {
   const locale = await getRequestLocale();
@@ -15,9 +16,8 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  const [locale, requestPath] = await Promise.all([getRequestLocale(), getRequestPath()]);
+  const locale = await getRequestLocale();
   const en = locale === "en";
-  const alternateLanguagePath = en ? (requestPath.slice(3) || "/") : pathFor("en", requestPath);
   return (
     <html lang={locale}>
       <body>
@@ -34,7 +34,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
               <Link href={pathFor(locale, "/review-notices")}>{en ? "Review notices" : "审查公示"}</Link>
               <Link href={pathFor(locale, "/about")}>{en ? "About" : "关于"}</Link>
               <SessionAction locale={locale} />
-              <Link className="language-link" href={alternateLanguagePath} hrefLang={en ? "zh-CN" : "en"}>{en ? "中文" : "EN"}</Link>
+              <LanguageLink />
             </nav>
           </div>
         </header>

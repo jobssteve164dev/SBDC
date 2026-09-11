@@ -243,6 +243,68 @@ test("各页面内容边界与上下导航栏保持一致", async (t) => {
   }
 });
 
+test("法律正文使用与导航栏一致的完整内容宽度", async (t) => {
+  const executablePath = await chromiumExecutable();
+  if (!executablePath) {
+    t.skip("Chromium unavailable");
+    return;
+  }
+
+  const browser = await chromium.launch({ executablePath, headless: true, args: ["--no-sandbox"] });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    await page.goto(`${baseUrl}/legal/terms`, { waitUntil: "networkidle" });
+    const widths = await page.locator(".legal-shell").evaluate((shell) => {
+      const section = shell.querySelector("section");
+      if (!(section instanceof HTMLElement)) throw new Error("legal section not found");
+      return {
+        shell: Math.round(shell.getBoundingClientRect().width),
+        section: Math.round(section.getBoundingClientRect().width),
+      };
+    });
+    assert.equal(widths.section, widths.shell);
+  } finally {
+    await browser.close();
+  }
+});
+
+test("语言切换后页面导航与法律入口持续使用所选语言", async (t) => {
+  const executablePath = await chromiumExecutable();
+  if (!executablePath) {
+    t.skip("Chromium unavailable");
+    return;
+  }
+
+  const browser = await chromium.launch({ executablePath, headless: true, args: ["--no-sandbox"] });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    await page.goto(`${baseUrl}/`, { waitUntil: "networkidle" });
+    await page.locator(".language-link").click();
+    await page.waitForURL(`${baseUrl}/en`);
+    await assertEnglishChrome(page);
+
+    await page.getByRole("link", { name: "Submit", exact: true }).click();
+    await page.waitForURL(`${baseUrl}/en/submit`);
+    await assertEnglishChrome(page);
+
+    await page.locator(".language-link").click();
+    await page.waitForURL(`${baseUrl}/submit`);
+    assert.equal(await page.locator("html").getAttribute("lang"), "zh-CN");
+    assert.equal(await page.locator(".language-link").textContent(), "EN");
+    assert.equal(await page.locator('footer a[href="/legal/terms"]').textContent(), "服务条款");
+  } finally {
+    await browser.close();
+  }
+
+  async function assertEnglishChrome(page) {
+    assert.equal(await page.locator("html").getAttribute("lang"), "en");
+    assert.equal(await page.locator(".language-link").textContent(), "中文");
+    const terms = page.locator('footer a[href="/en/legal/terms"]');
+    await terms.waitFor();
+    assert.equal(await terms.textContent(), "Terms of Service");
+  }
+});
+
 test("鉴权配置有效时健康检查通过", async () => {
   const response = await fetch(`${baseUrl}/health`, { redirect: "manual" });
   assert.equal(response.status, 200);
