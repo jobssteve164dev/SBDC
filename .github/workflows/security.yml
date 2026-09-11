@@ -8,12 +8,31 @@ on:
     - cron: '17 4 * * 1'
 
 jobs:
-  audit:
-    name: Dependency audit
+  python-audit:
+    name: Python dependency audit
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: Foundation security check
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Audit Python dependencies
         run: |
-          test -f AGENTS.md
-          test -f PROJECT_MEMORY.md
+          python -m pip install pip-audit
+          python -m pip_audit .
+
+  web-audit:
+    name: Web dependency audit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm audit --audit-level=low
