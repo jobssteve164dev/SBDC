@@ -15,6 +15,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import CondPageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
@@ -364,7 +365,10 @@ def _font_name() -> str:
     if name not in pdfmetrics.getRegisteredFontNames():
         font_source = next(((path, index) for path, index in FONT_PATHS if path.exists()), None)
         if font_source is None:
-            raise RuntimeError("未找到可用于可信报告的中文字体")
+            fallback = "STSong-Light"
+            if fallback not in pdfmetrics.getRegisteredFontNames():
+                pdfmetrics.registerFont(UnicodeCIDFont(fallback))
+            return fallback
         path, index = font_source
         pdfmetrics.registerFont(TTFont(name, str(path), subfontIndex=index))
     return name
