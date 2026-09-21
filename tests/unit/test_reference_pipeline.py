@@ -7,7 +7,9 @@ import sbdc_worker.reference_pipeline as reference_pipeline
 from sbdc_worker.reference_pipeline import (
     build_reference_index,
     compare_reference_corpus,
+    compare_semantic_reference_corpus,
     download_open_pdf,
+    evaluate_citation_support,
     extract_pdf_blocks,
     resolve_open_access,
 )
@@ -210,3 +212,231 @@ def test_download_open_pdf_pins_the_verified_address_in_production(monkeypatch):
 
     assert result == pdf
     assert calls == [("https://repository.example/paper.pdf", "8.8.8.8")]
+
+
+def test_semantic_comparison_surfaces_reworded_source_passages_without_calling_them_misconduct():
+    subject = [{
+        "document_id": "subject", "page": 2, "bbox": [1, 2, 3, 4],
+        "text": "A randomized clinical trial found the intervention reduced systolic blood pressure in adults.",
+    }]
+    source = [{
+        "document_id": "source", "page": 7, "bbox": [5, 6, 7, 8],
+        "text": "Adults in the randomized clinical trial showed reduced systolic blood pressure after receiving the intervention.",
+    }]
+    index = build_reference_index("task", [{
+        "reference_id": "ref-7", "ordinal": 7, "asset_id": "source", "blocks": source,
+        "title": "Clinical trial source", "doi": "10.1000/semantic", "sha256": "def456",
+    }])
+
+    result = compare_semantic_reference_corpus(subject, index, minimum_score=0.52)
+
+    assert len(result["evidence"]) == 1
+    item = result["evidence"][0]
+    assert item["code"] == "reference_semantic_similarity_candidate"
+    assert item["source_location"]["page"] == 7
+    assert item["method"]["source"]["ordinal"] == 7
+    assert item["method"]["parameters"]["score"] >= 0.52
+    assert "不等于不当复用" in item["limitations"][0]
+    assert result["coverage"]["semantic_candidate_comparisons"] == 1
+
+
+def test_semantic_comparison_caps_repetitive_domain_candidates_per_source():
+    subject = [
+        {"document_id": "subject", "page": page, "bbox": [1, 2, 3, 4], "text": "A randomized clinical trial found the intervention reduced systolic blood pressure in adults."}
+        for page in range(1, 9)
+    ]
+    source = [
+        {"document_id": "source", "page": page, "bbox": [5, 6, 7, 8], "text": "Adults in the randomized clinical trial showed reduced systolic blood pressure after receiving the intervention."}
+        for page in range(1, 9)
+    ]
+    index = build_reference_index("task", [{"reference_id": "ref", "ordinal": 1, "asset_id": "source", "blocks": source}])
+
+    result = compare_semantic_reference_corpus(subject, index, minimum_score=0.52)
+
+    assert len(result["evidence"]) == 3
+    assert result["coverage"]["semantic_similarity_candidates"] == 3
+
+
+def test_citation_support_recomputes_numeric_alignment_against_the_cited_source():
+    subject = [{
+        "document_id": "subject", "page": 3, "bbox": [1, 2, 3, 4],
+        "text": "The prior device operated up to 280 K with a measured purity of 0.35 [29].",
+    }]
+    source = [{
+        "document_id": "source", "page": 4, "bbox": [5, 6, 7, 8],
+        "text": "The device retained single photon operation at 280 K and the measured purity was 0.24.",
+    }]
+    index = build_reference_index("task", [{
+        "reference_id": "ref-29", "ordinal": 29, "asset_id": "source", "blocks": source,
+        "title": "Cited experiment", "doi": "10.1000/cited", "sha256": "abc789",
+    }])
+
+    result = evaluate_citation_support(subject, index, minimum_score=0.35)
+
+    assert result["coverage"] == {
+        "citation_contexts_detected": 1,
+        "citation_contexts_with_full_text": 1,
+        "citation_support_matches": 0,
+        "citation_support_unresolved": 0,
+        "citation_numeric_mismatches": 1,
+        "citation_direction_conflicts": 0,
+        "citation_candidate_comparisons": 1,
+        "citation_candidate_budget": 50_000,
+        "citation_candidate_budget_exhausted": 0,
+    }
+    item = result["evidence"][0]
+    assert item["code"] == "citation_numeric_mismatch_candidate"
+    assert item["subject_location"]["page"] == 3
+    assert item["source_location"]["page"] == 4
+    assert item["method"]["source"]["ordinal"] == 29
+    assert item["method"]["subject_numbers"] == ["0.35", "280"]
+    assert item["method"]["source_numbers"] == ["0.24", "280"]
+
+
+def test_citation_support_records_supported_and_unresolved_contexts_without_false_anomalies():
+    subject = [
+        {"document_id": "subject", "page": 1, "bbox": [1, 2, 3, 4], "text": "Operation reached 280 K [29]."},
+        {"document_id": "subject", "page": 2, "bbox": [1, 2, 3, 4], "text": "A separate historical claim [30]."},
+    ]
+    source = [{
+        "document_id": "source", "page": 4, "bbox": [5, 6, 7, 8],
+        "text": "The emitter continued to operate at a temperature of 280 K.",
+    }]
+    index = build_reference_index("task", [{
+        "reference_id": "ref-29", "ordinal": 29, "asset_id": "source", "blocks": source,
+    }])
+
+    result = evaluate_citation_support(subject, index, minimum_score=0.2)
+
+    assert result["evidence"] == []
+    assert result["coverage"]["citation_contexts_detected"] == 2
+    assert result["coverage"]["citation_contexts_with_full_text"] == 1
+    assert result["coverage"]["citation_support_matches"] == 1
+    assert result["coverage"]["citation_support_unresolved"] == 1
+
+
+def test_citation_support_ignores_bibliography_entries_that_begin_with_a_marker():
+    subject = [{
+        "document_id": "subject", "page": 7, "bbox": [1, 2, 3, 4],
+        "text": "[29] X. Sun, P. Wang, Appl. Phys. Lett. 2019, 115, 022101.",
+    }]
+    index = build_reference_index("task", [])
+
+    result = evaluate_citation_support(subject, index)
+
+    assert result["coverage"]["citation_contexts_detected"] == 0
+    assert result["coverage"]["citation_support_unresolved"] == 0
+
+
+def test_citation_support_only_compares_the_sentence_attached_to_the_marker():
+    subject = [{
+        "document_id": "subject", "page": 1, "bbox": [1, 2, 3, 4],
+        "text": "Earlier devices reached 200 K with purity 0.24 [28]. This source reports operation up to 280 K [29]. Later work reached 300 K [30].",
+    }]
+    source = [{
+        "document_id": "source", "page": 2, "bbox": [5, 6, 7, 8],
+        "text": "The single photon device continued to operate at a temperature of 280 K.",
+    }]
+    index = build_reference_index("task", [{"reference_id": "ref-29", "ordinal": 29, "asset_id": "source", "blocks": source}])
+
+    result = evaluate_citation_support(subject, index, minimum_score=0.2)
+
+    assert result["evidence"] == []
+    assert result["coverage"]["citation_contexts_with_full_text"] == 1
+    assert result["coverage"]["citation_support_matches"] == 1
+
+
+def test_citation_support_counts_one_claim_context_for_a_reference_range():
+    subject = [{
+        "document_id": "subject", "page": 1, "bbox": [1, 2, 3, 4],
+        "text": "Prior emitters operated at elevated temperatures [29–34].",
+    }]
+    index = build_reference_index("task", [])
+
+    result = evaluate_citation_support(subject, index)
+
+    assert result["coverage"]["citation_contexts_detected"] == 1
+    assert result["coverage"]["citation_support_unresolved"] == 1
+
+
+def test_citation_support_combines_numbers_from_all_sources_in_a_multi_reference_claim():
+    subject = [{
+        "document_id": "subject", "page": 1, "bbox": [1, 2, 3, 4],
+        "text": "Prior devices operated at temperatures of 280 K and 300 K [29,30].",
+    }]
+    documents = []
+    for ordinal, temperature in ((29, 280), (30, 300)):
+        documents.append({
+            "reference_id": f"ref-{ordinal}", "ordinal": ordinal, "asset_id": f"source-{ordinal}",
+            "blocks": [{
+                "document_id": f"source-{ordinal}", "page": 2, "bbox": [5, 6, 7, 8],
+                "text": f"The prior device operated at a temperature of {temperature} K.",
+            }],
+        })
+    result = evaluate_citation_support(subject, build_reference_index("task", documents), minimum_score=0.2)
+
+    assert result["evidence"] == []
+    assert result["coverage"]["citation_support_matches"] == 1
+    assert result["coverage"]["citation_numeric_mismatches"] == 0
+
+
+def test_citation_support_reports_when_its_comparison_budget_truncates_contexts():
+    subject = [{
+        "document_id": "subject", "page": 1, "bbox": [1, 2, 3, 4],
+        "text": "The device operated at 280 K [29].",
+    }]
+    source = [
+        {"document_id": "source", "page": 2, "bbox": [5, 6, 7, 8], "text": "Unrelated source material."},
+        {"document_id": "source", "page": 3, "bbox": [5, 6, 7, 8], "text": "The device operated at 280 K."},
+    ]
+    index = build_reference_index("task", [{"reference_id": "ref-29", "ordinal": 29, "asset_id": "source", "blocks": source}])
+
+    result = evaluate_citation_support(subject, index, minimum_score=0.2, max_candidate_comparisons=1)
+
+    assert result["coverage"]["citation_candidate_comparisons"] == 1
+    assert result["coverage"]["citation_candidate_budget"] == 1
+    assert result["coverage"]["citation_candidate_budget_exhausted"] == 1
+    assert result["coverage"]["citation_support_unresolved"] == 1
+
+
+def test_citation_support_does_not_call_opposite_direction_claims_a_match():
+    subject = [{
+        "document_id": "subject", "page": 1, "bbox": [1, 2, 3, 4],
+        "text": "Treatment X increased mortality in adults [1].",
+    }]
+    source = [{
+        "document_id": "source", "page": 2, "bbox": [5, 6, 7, 8],
+        "text": "Treatment X decreased mortality in adults.",
+    }]
+    index = build_reference_index("task", [{"reference_id": "ref-1", "ordinal": 1, "asset_id": "source", "blocks": source}])
+
+    result = evaluate_citation_support(subject, index, minimum_score=0.2)
+
+    assert result["coverage"]["citation_support_matches"] == 0
+    assert result["coverage"]["citation_direction_conflicts"] == 1
+    assert result["evidence"][0]["code"] == "citation_direction_conflict_candidate"
+
+
+def test_citation_direction_check_leaves_multi_predicate_and_negated_claims_unresolved():
+    cases = [
+        (
+            "Treatment X increased survival and decreased mortality in adults [1].",
+            "Treatment X increased survival and decreased mortality in adults.",
+        ),
+        ("Treatment X did not increase mortality in adults [1].", "Treatment X increased mortality in adults."),
+    ]
+    for subject_text, source_text in cases:
+        index = build_reference_index("task", [{
+            "reference_id": "ref-1", "ordinal": 1, "asset_id": "source",
+            "blocks": [{"document_id": "source", "page": 2, "bbox": [5, 6, 7, 8], "text": source_text}],
+        }])
+        result = evaluate_citation_support(
+            [{"document_id": "subject", "page": 1, "bbox": [1, 2, 3, 4], "text": subject_text}],
+            index,
+            minimum_score=0.2,
+        )
+
+        assert result["evidence"] == []
+        assert result["coverage"]["citation_support_matches"] == 0
+        assert result["coverage"]["citation_direction_conflicts"] == 0
+        assert result["coverage"]["citation_support_unresolved"] == 1

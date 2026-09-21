@@ -40,7 +40,32 @@ createServer((request, response) => {
     response.writeHead(200, { "content-type": "application/json" });
     response.end(JSON.stringify({
       id: taskId, status: "review_ready", stage_message: "深度检查完成，请逐项复核证据", error_message: null,
-      coverage_summary: { references_total: 52, references_parsed: 52, references_failed: 0, reference_full_texts_obtained: 12, body_sections: 4, located_sections: 4 },
+      coverage_summary: {
+        references_total: 52, references_parsed: 52, references_failed: 0,
+        reference_full_texts_obtained: 12, reference_full_texts_compared: 10,
+        reference_candidate_comparisons: 300, reference_candidate_budget: 50000,
+        reference_candidate_budget_exhausted: 0,
+        body_sections: 4, located_sections: 4,
+        semantic_candidate_comparisons: 480, semantic_similarity_candidates: 3,
+        semantic_candidate_budget: 50000, semantic_candidate_budget_exhausted: 0,
+        citation_contexts_detected: 18, citation_contexts_with_full_text: 7,
+        citation_support_matches: 5, citation_support_unresolved: 13,
+        citation_candidate_comparisons: 50000, citation_candidate_budget: 50000,
+        citation_candidate_budget_exhausted: 1,
+        statistical_mentions_detected: 34, statistical_mentions_recomputed: 2,
+        statistical_checks_consistent: 2, statistical_checks_inconsistent: 0,
+        statistical_threshold_claims_examined: 8, statistical_threshold_claim_budget: 1000,
+        statistical_average_claims_examined: 4, statistical_average_claim_budget: 500,
+        statistical_value_list_comparisons: 12, statistical_value_list_comparison_budget: 5000,
+        advanced_images_screened: 4, image_regions_compared: 260,
+        embedded_images_skipped_resource_limit: 1, advanced_images_skipped_resource_limit: 1,
+        image_tile_sampling_adjusted: 2,
+        image_tiles_generated: 2500, image_task_tile_budget: 25000,
+        image_task_decoded_pixels: 128000, image_task_decoded_pixel_budget: 40000000,
+        image_resource_budget_exhausted: 0,
+        image_region_comparison_budget: 50000, image_region_budget_exhausted: 0,
+        image_region_reuse_candidates: 0,
+      },
       source_asset: { id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", sha256: "a".repeat(64), size_bytes: 2048, page_count: 7 },
       report_asset: null,
       document: { title: "Room Temperature Triggered Single Photon Emission", authors: ["Ling Chen"], abstract: "Room-temperature single photon emission study.", parser_version: "0.9.0", sections: [{ ordinal: 1, heading: "Results", page: 2, bbox: [1, 1, 2, 2], paragraphs: [{ text: "Experimental results.", page: 2, bbox: [1, 1, 2, 2] }] }] },
@@ -63,6 +88,17 @@ createServer((request, response) => {
       source_excerpt: "Figure 3 reports the comparison baseline.",
       explanation: "低温与室温结果来自不同发射体，现有记录不能证明同一发射体随温度升高仍保持相同性能。",
       limitations: ["该发现不评价测量数据真实性。"], decision: null,
+    }, {
+      id: "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee", code: "citation_direction_conflict_candidate", status: "needs_review",
+      severity: "high", confidence: 0.9, subject_location: { document_id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", page: 3, bbox: [1, 1, 2, 2] },
+      source_location: { document_id: "cccccccc-cccc-cccc-cccc-cccccccccccc", page: 2, bbox: [1, 1, 2, 2] },
+      subject_excerpt: "Treatment increased mortality [1].", source_excerpt: "Treatment decreased mortality.",
+      explanation: "论断方向与来源片段相反，需要人工核对。", limitations: ["方向词只生成复核候选。"], decision: null,
+    }, {
+      id: "ffffffff-ffff-ffff-ffff-ffffffffffff", code: "statistical_average_inconsistency", status: "needs_review",
+      severity: "medium", confidence: 0.9, subject_location: { document_id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", page: 5, bbox: [1, 1, 2, 2] },
+      source_location: null, subject_excerpt: "Values 1, 2, 3, 4; average 4.5.", source_excerpt: null,
+      explanation: "报告平均值与所列数值不一致。", limitations: ["需核对预先规定的计算方法。"], decision: null,
     }]));
     return;
   }

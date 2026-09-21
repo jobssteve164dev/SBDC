@@ -1,5 +1,6 @@
 import hashlib
 import ipaddress
+import math
 import re
 import socket
 import ssl
@@ -256,6 +257,7 @@ def build_reference_index(task_id: str, documents: list[dict[str, Any]]) -> dict
         blocks = document["blocks"]
         normalized_documents.append({
             "reference_id": document["reference_id"],
+            "ordinal": document.get("ordinal"),
             "asset_id": document["asset_id"],
             "title": document.get("title"),
             "doi": document.get("doi"),
@@ -279,6 +281,318 @@ def build_reference_index(task_id: str, documents: list[dict[str, Any]]) -> dict
 
 def _words(text: str) -> list[str]:
     return WORD.findall(text.lower())
+
+
+def _semantic_tokens(text: str) -> list[str]:
+    tokens = []
+    for word in _words(text):
+        if word in STOPWORDS or len(word) < 3:
+            continue
+        if word.endswith("ies") and len(word) > 5:
+            word = f"{word[:-3]}y"
+        elif word.endswith("ing") and len(word) > 6:
+            word = word[:-3]
+        elif word.endswith("ed") and len(word) > 5:
+            word = word[:-2]
+        elif word.endswith("s") and len(word) > 5:
+            word = word[:-1]
+        tokens.append(word)
+    return tokens
+
+
+def _cosine_similarity(left: list[str], right: list[str]) -> float:
+    left_counts = defaultdict(int)
+    right_counts = defaultdict(int)
+    for token in left:
+        left_counts[token] += 1
+    for token in right:
+        right_counts[token] += 1
+    shared = set(left_counts) & set(right_counts)
+    numerator = sum(left_counts[token] * right_counts[token] for token in shared)
+    left_norm = math.sqrt(sum(value * value for value in left_counts.values()))
+    right_norm = math.sqrt(sum(value * value for value in right_counts.values()))
+    return numerator / (left_norm * right_norm) if left_norm and right_norm else 0.0
+
+
+def _source_identity(document: dict[str, Any]) -> dict[str, Any]:
+    return {key: document.get(key) for key in ("reference_id", "ordinal", "title", "doi", "sha256")}
+
+
+def _block_location(block: dict[str, Any]) -> dict[str, Any]:
+    return {key: block.get(key) for key in ("document_id", "page", "bbox")}
+
+
+def compare_semantic_reference_corpus(
+    subject_blocks: list[dict[str, Any]], index: dict[str, Any], *, minimum_score: float = 0.62,
+    max_candidate_comparisons: int = 50_000,
+) -> dict[str, Any]:
+    evidence: list[dict[str, Any]] = []
+    comparisons = 0
+    exhausted = False
+    for subject in subject_blocks:
+        subject_tokens = _semantic_tokens(subject["text"])
+        if len(subject_tokens) < 6:
+            continue
+        for document in index["documents"]:
+            for source in document["blocks"]:
+                if comparisons >= max_candidate_comparisons:
+                    exhausted = True
+                    break
+                comparisons += 1
+                source_tokens = _semantic_tokens(source["text"])
+                if len(source_tokens) < 6:
+                    continue
+                score = _cosine_similarity(subject_tokens, source_tokens)
+                exact = max(
+                    (match.size for match in SequenceMatcher(None, subject_tokens, source_tokens, autojunk=False).get_matching_blocks()),
+                    default=0,
+                )
+                shared = len(set(subject_tokens) & set(source_tokens))
+                if score < minimum_score or shared < 6 or exact >= 10:
+                    continue
+                evidence.append({
+                    "code": "reference_semantic_similarity_candidate",
+                    "category": "semantic_similarity",
+                    "status": "needs_review",
+                    "severity": "medium",
+                    "confidence": round(min(0.95, 0.5 + score * 0.45), 3),
+                    "subject_location": _block_location(subject),
+                    "source_location": _block_location(source),
+                    "subject_excerpt": subject["text"],
+                    "source_excerpt": source["text"],
+                    "explanation": "待检论文与已合法取得的引用来源表达了高度近似的内容，但没有形成长段连续词面重合，需要结合引用位置人工复核。",
+                    "method": {
+                        "detector": "normalized-token-vector", "version": INDEX_VERSION,
+                        "parameters": {"score": round(score, 3), "minimum_score": minimum_score, "shared_terms": shared},
+                        "source": _source_identity(document),
+                    },
+                    "limitations": ["词项向量近似不等于不当复用，也不能覆盖跨语言改写或需要领域推理的语义关系。"],
+                    "artifacts": [document["asset_id"]],
+                })
+            if exhausted:
+                break
+        if exhausted:
+            break
+    ranked = sorted(evidence, key=lambda item: (-item["confidence"], item["subject_location"].get("page") or 0))
+    evidence = []
+    per_source: dict[str, int] = defaultdict(int)
+    for item in ranked:
+        source_id = item["artifacts"][0]
+        if per_source[source_id] >= 3:
+            continue
+        evidence.append(item)
+        per_source[source_id] += 1
+    return {
+        "evidence": evidence,
+        "coverage": {
+            "semantic_candidate_comparisons": comparisons,
+            "semantic_candidate_budget": max_candidate_comparisons,
+            "semantic_candidate_budget_exhausted": int(exhausted),
+            "semantic_similarity_candidates": len(evidence),
+        },
+    }
+
+
+def _citation_ordinals(text: str) -> list[int]:
+    ordinals: set[int] = set()
+    for marker in re.findall(r"\[([^\]]+)\]", text):
+        for part in re.split(r"\s*[,;]\s*", marker.replace("–", "-")):
+            if re.fullmatch(r"\d+", part):
+                ordinals.add(int(part))
+            elif match := re.fullmatch(r"(\d+)\s*-\s*(\d+)", part):
+                start, end = map(int, match.groups())
+                if 0 <= end - start <= 100:
+                    ordinals.update(range(start, end + 1))
+    return sorted(ordinals)
+
+
+def _numbers(text: str) -> list[str]:
+    without_citations = re.sub(r"\[[^\]]+\]", "", text)
+    return sorted(set(re.findall(r"(?<![A-Za-z])\d+(?:\.\d+)?", without_citations)))
+
+
+DIRECTION_POLARITY = {
+    **{word: 1 for word in ("increase", "increased", "increases", "higher", "raise", "raised", "rise", "rose")},
+    **{word: -1 for word in ("decrease", "decreased", "decreases", "lower", "reduce", "reduced", "decline", "declined")},
+}
+
+
+def _direction_event(text: str) -> tuple[int, set[str]] | None | str:
+    words = _words(text)
+    events: list[tuple[int, set[str]]] = []
+    for index, word in enumerate(words):
+        polarity = DIRECTION_POLARITY.get(word)
+        if polarity is None:
+            continue
+        if {"not", "no", "never"} & set(words[max(0, index - 3):index]):
+            return "ambiguous"
+        predicate = {
+            token for token in words[index + 1:index + 5]
+            if token not in STOPWORDS and token not in DIRECTION_POLARITY and not token.isdigit()
+        }
+        events.append((polarity, predicate))
+    if not events:
+        return None
+    if len(events) != 1 or not events[0][1]:
+        return "ambiguous"
+    return events[0]
+
+
+def _direction_relation(subject_text: str, source_text: str) -> str:
+    subject = _direction_event(subject_text)
+    source = _direction_event(source_text)
+    if subject == "ambiguous" or source == "ambiguous":
+        return "ambiguous"
+    if subject is None and source is None:
+        return "none"
+    if subject is None or source is None:
+        return "ambiguous"
+    subject_polarity, subject_predicate = subject
+    source_polarity, source_predicate = source
+    if not subject_predicate.intersection(source_predicate):
+        return "ambiguous"
+    return "conflict" if subject_polarity != source_polarity else "aligned"
+
+
+def _citation_contexts(text: str) -> list[tuple[str, list[int]]]:
+    contexts = []
+    seen: set[tuple[str, tuple[int, ...]]] = set()
+    for marker in re.finditer(r"\[[^\]]+\]", text):
+        ordinals = _citation_ordinals(marker.group(0))
+        if not ordinals:
+            continue
+        start = text.rfind(". ", 0, marker.start())
+        start = start + 2 if start >= 0 else 0
+        end = text.find(". ", marker.end())
+        end = end + 1 if end >= 0 else len(text)
+        context = text[start:end].strip()
+        key = (context, tuple(ordinals))
+        if key not in seen:
+            contexts.append((context, ordinals))
+            seen.add(key)
+    return contexts
+
+
+def evaluate_citation_support(
+    subject_blocks: list[dict[str, Any]], index: dict[str, Any], *, minimum_score: float = 0.42,
+    max_candidate_comparisons: int = 50_000,
+) -> dict[str, Any]:
+    by_ordinal = {document.get("ordinal"): document for document in index["documents"] if document.get("ordinal")}
+    coverage = {
+        "citation_contexts_detected": 0,
+        "citation_contexts_with_full_text": 0,
+        "citation_support_matches": 0,
+        "citation_support_unresolved": 0,
+        "citation_numeric_mismatches": 0,
+        "citation_direction_conflicts": 0,
+        "citation_candidate_comparisons": 0,
+        "citation_candidate_budget": max_candidate_comparisons,
+        "citation_candidate_budget_exhausted": 0,
+    }
+    evidence = []
+    comparisons = 0
+    for subject in subject_blocks:
+        if re.match(r"^\s*\[\d+(?:\s*[-–,;]\s*\d+)*\]", subject["text"]):
+            continue
+        for context, ordinals in _citation_contexts(subject["text"]):
+            coverage["citation_contexts_detected"] += 1
+            documents = [by_ordinal[ordinal] for ordinal in ordinals if ordinal in by_ordinal]
+            if not documents:
+                coverage["citation_support_unresolved"] += 1
+                continue
+            coverage["citation_contexts_with_full_text"] += 1
+            if len(documents) != len(ordinals):
+                coverage["citation_support_unresolved"] += 1
+                continue
+            subject_tokens = _semantic_tokens(re.sub(r"\[[^\]]+\]", "", context))
+            best_by_document: list[tuple[float, dict[str, Any], dict[str, Any]]] = []
+            truncated = False
+            for document in documents:
+                document_candidates: list[tuple[float, dict[str, Any], dict[str, Any]]] = []
+                for source in document["blocks"]:
+                    if comparisons >= max_candidate_comparisons:
+                        truncated = True
+                        break
+                    comparisons += 1
+                    score = _cosine_similarity(subject_tokens, _semantic_tokens(source["text"]))
+                    document_candidates.append((score, source, document))
+                if truncated:
+                    break
+                if document_candidates:
+                    best_by_document.append(max(document_candidates, key=lambda item: item[0]))
+            coverage["citation_candidate_comparisons"] = comparisons
+            if truncated:
+                coverage["citation_candidate_budget_exhausted"] = 1
+                coverage["citation_support_unresolved"] += 1
+                continue
+            subject_numbers = _numbers(context)
+            aligned = [
+                candidate for candidate in best_by_document
+                if candidate[0] >= minimum_score
+                or bool(set(subject_numbers) & set(_numbers(candidate[1]["text"])))
+            ]
+            if not aligned:
+                coverage["citation_support_unresolved"] += 1
+                continue
+            score, source, document = max(aligned, key=lambda item: item[0])
+            source_numbers = sorted({number for _, block, _ in aligned for number in _numbers(block["text"])})
+            missing_numbers = sorted(set(subject_numbers) - set(source_numbers))
+            direction_candidates = [
+                (candidate, _direction_relation(context, candidate[1]["text"])) for candidate in aligned
+            ]
+            direction_conflict = next(
+                (candidate for candidate, relation in direction_candidates if relation == "conflict"),
+                None,
+            )
+            if direction_conflict:
+                score, source, document = direction_conflict
+                coverage["citation_direction_conflicts"] += 1
+                ordinal = document.get("ordinal")
+                evidence.append({
+                    "code": "citation_direction_conflict_candidate",
+                    "category": "citation_support",
+                    "status": "needs_review",
+                    "severity": "high",
+                    "confidence": round(min(0.96, 0.55 + score * 0.4), 3),
+                    "subject_location": _block_location(subject),
+                    "source_location": _block_location(source),
+                    "subject_excerpt": context,
+                    "source_excerpt": source["text"],
+                    "explanation": f"正文引用第 {ordinal} 条来源时，论断方向与最接近来源片段相反，需要核对否定、比较方向和完整上下文。",
+                    "method": {
+                        "detector": "citation-direction-alignment", "version": INDEX_VERSION,
+                        "score": round(score, 3), "source": _source_identity(document),
+                    },
+                    "limitations": ["方向词冲突只能生成复核候选；否定范围、亚组、时间点和上下文差异都可能造成合理例外。"],
+                    "artifacts": [document["asset_id"]],
+                })
+            elif any(relation == "ambiguous" for _, relation in direction_candidates):
+                coverage["citation_support_unresolved"] += 1
+            elif missing_numbers and subject_numbers:
+                coverage["citation_numeric_mismatches"] += 1
+                ordinal = document.get("ordinal")
+                evidence.append({
+                    "code": "citation_numeric_mismatch_candidate",
+                    "category": "citation_support",
+                    "status": "needs_review",
+                    "severity": "medium",
+                    "confidence": round(min(0.96, 0.55 + score * 0.4), 3),
+                    "subject_location": _block_location(subject),
+                    "source_location": _block_location(source),
+                    "subject_excerpt": context,
+                    "source_excerpt": source["text"],
+                    "explanation": f"正文引用第 {ordinal} 条来源时包含数值 {', '.join(missing_numbers)}，在最接近的来源片段中未找到相同数值，需要核对引用范围和原始上下文。",
+                    "method": {
+                        "detector": "citation-context-alignment", "version": INDEX_VERSION,
+                        "score": round(score, 3), "subject_numbers": subject_numbers, "source_numbers": source_numbers,
+                        "source": _source_identity(document),
+                    },
+                    "limitations": ["来源片段未出现相同数值不等于引用错误；数值可能位于来源的表格、图片或未提取区域。"],
+                    "artifacts": [document["asset_id"]],
+                })
+            else:
+                coverage["citation_support_matches"] += 1
+    return {"evidence": evidence, "coverage": coverage}
 
 
 def _matched_excerpt(text: str, start_word: int, word_count: int) -> str:

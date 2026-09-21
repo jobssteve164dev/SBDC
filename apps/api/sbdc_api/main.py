@@ -955,6 +955,7 @@ def create_report(task_id: uuid.UUID, db: Session = Depends(get_db)) -> ReportOu
         "method_version": METHOD_VERSION,
         "generated_at": datetime.now(UTC).isoformat(),
         "coverage": task.coverage_summary,
+        "statistical_checks": task.coverage_summary.get("statistical_checks", []),
         "evidence": [
             {
                 "id": str(item.id),
@@ -977,8 +978,9 @@ def create_report(task_id: uuid.UUID, db: Session = Depends(get_db)) -> ReportOu
         "limitations": [
             "本轮审核待检论文及已合法取得的引用 PDF；未取得论文所依赖的原始数据、分析文件、原始图像或研究记录。",
             "引用支持与文本复用结论受已合法取得的引用全文覆盖率限制。",
-            "引用来源对照目前覆盖连续词面重合；语义改写、翻译式复用和论断支持关系尚未完成核验。",
-            "PDF 内嵌位图仅进行了精确像素复用初筛；小型装饰图已排除，无原图时不能认证图片真实性。",
+            "语义近似与引用支持核对基于可解释的词项向量、引用标记和数值一致性；跨语言改写与需要领域推理的关系仍可能无法识别。",
+            "统计复算只覆盖可由 PDF 报告值直接重建的算术关系；没有原始观测、拟合残差和分析代码时不能完整复现统计模型。",
+            "图片核对覆盖精确复用、局部感知相似与坐标留证；没有原始图像时不能认证图片真实性或把候选解释为操纵。",
         ],
     }
     asset_id = uuid.uuid4()

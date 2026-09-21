@@ -21,8 +21,8 @@ from .celery_app import app
 from .tei import parse_tei
 from .deep_review import METHOD_VERSION, analyze_pdf
 from .reference_pipeline import (
-    build_reference_index, compare_reference_corpus, download_open_pdf, extract_pdf_blocks, pdf_page_count,
-    resolve_open_access,
+    build_reference_index, compare_reference_corpus, compare_semantic_reference_corpus, download_open_pdf,
+    evaluate_citation_support, extract_pdf_blocks, pdf_page_count, resolve_open_access,
 )
 
 
@@ -72,7 +72,8 @@ def _prepare_reference_corpus(db, task: PaperTask, source_asset: DocumentAsset) 
                         obtained_count += 1
                         if blocks:
                             documents.append({
-                                "reference_id": str(reference.id), "asset_id": str(existing_asset.id),
+                                "reference_id": str(reference.id), "ordinal": reference.ordinal,
+                                "asset_id": str(existing_asset.id),
                                 "title": reference.title, "doi": reference.doi, "sha256": existing_asset.sha256,
                                 "blocks": blocks,
                             })
@@ -137,7 +138,8 @@ def _prepare_reference_corpus(db, task: PaperTask, source_asset: DocumentAsset) 
                 obtained_count += 1
                 if blocks:
                     documents.append({
-                        "reference_id": str(reference.id), "asset_id": str(asset.id), "title": reference.title,
+                        "reference_id": str(reference.id), "ordinal": reference.ordinal,
+                        "asset_id": str(asset.id), "title": reference.title,
                         "doi": reference.doi, "sha256": asset.sha256, "blocks": blocks,
                     })
                     total_characters += characters
@@ -349,12 +351,23 @@ def deep_review_document(task_id: str, run_id: str) -> dict[str, str]:
         source_bytes = get_bytes(asset.storage_key)
         index, reference_documents, corpus_coverage = _prepare_reference_corpus(db, task, asset)
         analysis = analyze_pdf(source_bytes, document_id=str(asset.id))
+        subject_blocks = extract_pdf_blocks(source_bytes, str(asset.id))
         comparison_metrics: dict[str, int] = {}
         analysis["evidence"].extend(compare_reference_corpus(
-            extract_pdf_blocks(source_bytes, str(asset.id)), index,
+            subject_blocks, index,
             max_candidate_comparisons=settings.max_reference_candidate_comparisons,
             metrics=comparison_metrics,
         ))
+        semantic_result = compare_semantic_reference_corpus(
+            subject_blocks, index, max_candidate_comparisons=settings.max_reference_candidate_comparisons,
+        )
+        citation_result = evaluate_citation_support(
+            subject_blocks, index, max_candidate_comparisons=settings.max_reference_candidate_comparisons,
+        )
+        analysis["evidence"].extend(semantic_result["evidence"])
+        analysis["evidence"].extend(citation_result["evidence"])
+        analysis["coverage"].update(semantic_result["coverage"])
+        analysis["coverage"].update(citation_result["coverage"])
         document = db.scalar(select(ParsedDocument).where(ParsedDocument.task_id == task.id))
         references = list(db.scalars(select(ReferenceSource).where(ReferenceSource.task_id == task.id)))
         analysis["title"] = document.title if document and document.title else analysis.get("title")

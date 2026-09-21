@@ -13,7 +13,7 @@ type Reference = Location & {
 };
 type Task = {
   id: string; status: string; stage_message: string; error_message: string | null;
-  coverage_summary: Record<string, number | Record<string, number>>;
+  coverage_summary: Record<string, unknown>;
   source_asset: { id: string; sha256: string; size_bytes: number; page_count: number } | null;
   document: { title: string | null; authors: string[]; abstract: string | null; sections: Section[]; parser_version: string | null } | null;
   references: Reference[];
@@ -48,6 +48,12 @@ const evidenceTitle: Record<string, [string, string]> = {
   data_not_directly_available: ["关键原始数据未直接提供", "Key raw data are not directly available"],
   embedded_image_reuse_candidate: ["PDF 内出现相同位图候选", "An identical embedded bitmap appears more than once"],
   reference_text_reuse_candidate: ["与引用来源存在连续文本重合", "Continuous text overlaps a cited source"],
+  reference_semantic_similarity_candidate: ["与引用来源存在语义近似候选", "Semantically similar wording appears in a cited source"],
+  citation_numeric_mismatch_candidate: ["引用论断与来源数值需要核对", "A cited claim and source value need review"],
+  citation_direction_conflict_candidate: ["引用论断与来源方向需要核对", "A cited claim and source direction need review"],
+  statistical_threshold_uncertainty: ["统计阈值在不确定度范围内需要复核", "A statistical threshold needs uncertainty review"],
+  statistical_average_inconsistency: ["报告平均值与所列数值不一致", "A reported average differs from the listed values"],
+  image_region_reuse_candidate: ["图片内存在局部区域复用候选", "A figure contains a repeated-region candidate"],
 };
 
 export function TaskWorkspace({ taskId, locale }: { taskId: string; locale: Locale }) {
@@ -200,7 +206,43 @@ export function TaskWorkspace({ taskId, locale }: { taskId: string; locale: Loca
   const failedRefs = Number(coverage.references_failed ?? 0);
   const fullTexts = Number(coverage.reference_full_texts_obtained ?? 0);
   const comparedFullTexts = Number(coverage.reference_full_texts_compared ?? 0);
-  const comparisonBudgetExhausted = Number(coverage.reference_candidate_budget_exhausted ?? 0) === 1;
+  const lexicalComparisons = Number(coverage.reference_candidate_comparisons ?? 0);
+  const lexicalBudget = Number(coverage.reference_candidate_budget ?? 0);
+  const comparisonBudgetExhausted = [
+    coverage.reference_candidate_budget_exhausted,
+    coverage.semantic_candidate_budget_exhausted,
+    coverage.citation_candidate_budget_exhausted,
+    coverage.statistical_review_budget_exhausted,
+    coverage.image_region_budget_exhausted,
+    coverage.image_resource_budget_exhausted,
+  ].some((value) => Number(value ?? 0) === 1);
+  const semanticCandidates = Number(coverage.semantic_similarity_candidates ?? 0);
+  const semanticComparisons = Number(coverage.semantic_candidate_comparisons ?? 0);
+  const semanticBudget = Number(coverage.semantic_candidate_budget ?? 0);
+  const citationContexts = Number(coverage.citation_contexts_detected ?? 0);
+  const citationMatches = Number(coverage.citation_support_matches ?? 0);
+  const citationComparisons = Number(coverage.citation_candidate_comparisons ?? 0);
+  const citationBudget = Number(coverage.citation_candidate_budget ?? 0);
+  const statisticalMentions = Number(coverage.statistical_mentions_detected ?? 0);
+  const statisticalRecomputed = Number(coverage.statistical_mentions_recomputed ?? 0);
+  const statisticalThresholds = Number(coverage.statistical_threshold_claims_examined ?? 0);
+  const statisticalThresholdBudget = Number(coverage.statistical_threshold_claim_budget ?? 0);
+  const statisticalAverages = Number(coverage.statistical_average_claims_examined ?? 0);
+  const statisticalAverageBudget = Number(coverage.statistical_average_claim_budget ?? 0);
+  const statisticalListComparisons = Number(coverage.statistical_value_list_comparisons ?? 0);
+  const statisticalListBudget = Number(coverage.statistical_value_list_comparison_budget ?? 0);
+  const imageComparisons = Number(coverage.image_regions_compared ?? 0);
+  const imageCandidates = Number(coverage.image_region_reuse_candidates ?? 0);
+  const imageBudget = Number(coverage.image_region_comparison_budget ?? 0);
+  const imageSkipped = Math.max(
+    Number(coverage.advanced_images_skipped_resource_limit ?? 0),
+    Number(coverage.embedded_images_skipped_resource_limit ?? 0),
+  );
+  const imageSampled = Number(coverage.image_tile_sampling_adjusted ?? 0);
+  const imageDecodedPixels = Number(coverage.image_task_decoded_pixels ?? 0);
+  const imageDecodedPixelBudget = Number(coverage.image_task_decoded_pixel_budget ?? 0);
+  const imageTiles = Number(coverage.image_tiles_generated ?? 0);
+  const imageTileBudget = Number(coverage.image_task_tile_budget ?? 0);
   const sections = Number(coverage.body_sections ?? 0);
   const located = Number(coverage.located_sections ?? 0);
 
@@ -238,7 +280,11 @@ export function TaskWorkspace({ taskId, locale }: { taskId: string; locale: Loca
             <article><span>{en ? "Parsed" : "成功解析"}</span><strong>{refsParsed}</strong><small>{total ? `${Math.round(refsParsed / total * 100)}%` : (en ? "No references" : "暂无引用")}</small></article>
             <article><span>{en ? "Failed" : "解析失败"}</span><strong>{failedRefs}</strong><small>{failedRefs ? (en ? "See reference list" : "原因见引用清单") : (en ? "None" : "无")}</small></article>
             <article><span>{en ? "Open full text" : "开放全文"}</span><strong>{fullTexts}/{total}</strong><small>{en ? "legally obtained" : "合法取得"}</small></article>
-            <article><span>{en ? "Compared sources" : "进入文本对照"}</span><strong>{comparedFullTexts}</strong><small>{en ? "with extractable text" : "具有可提取文本"}</small></article>
+            <article><span>{en ? "Compared sources" : "进入文本对照"}</span><strong>{comparedFullTexts}</strong><small>{en ? `${lexicalComparisons}/${lexicalBudget} lexical comparisons` : `词面比较 ${lexicalComparisons}/${lexicalBudget}`}</small></article>
+            <article><span>{en ? "Semantic similarity" : "语义近似"}</span><strong>{semanticCandidates}</strong><small>{en ? `${semanticComparisons}/${semanticBudget} comparisons` : `比较 ${semanticComparisons}/${semanticBudget}`}</small></article>
+            <article><span>{en ? "Citation alignment" : "引用论断核对"}</span><strong>{citationMatches}/{citationContexts}</strong><small>{en ? `${citationComparisons}/${citationBudget} comparisons` : `文本对齐；比较 ${citationComparisons}/${citationBudget}`}</small></article>
+            <article><span>{en ? "Statistical recomputation" : "统计复算"}</span><strong>{statisticalRecomputed}/{statisticalMentions}</strong><small>{en ? `thresholds ${statisticalThresholds}/${statisticalThresholdBudget}; averages ${statisticalAverages}/${statisticalAverageBudget}; list comparisons ${statisticalListComparisons}/${statisticalListBudget}` : `阈值 ${statisticalThresholds}/${statisticalThresholdBudget}；均值 ${statisticalAverages}/${statisticalAverageBudget}；列表比较 ${statisticalListComparisons}/${statisticalListBudget}`}</small></article>
+            <article><span>{en ? "Figure-region review" : "图片局部核对"}</span><strong>{imageComparisons}/{imageBudget}</strong><small>{en ? `${imageCandidates} candidates; ${imageSkipped} skipped; ${imageSampled} sampled; pixels ${imageDecodedPixels}/${imageDecodedPixelBudget}; tiles ${imageTiles}/${imageTileBudget}` : `${imageCandidates} 项候选；跳过 ${imageSkipped}；稀疏采样 ${imageSampled}；像素 ${imageDecodedPixels}/${imageDecodedPixelBudget}；图块 ${imageTiles}/${imageTileBudget}`}</small></article>
             <article><span>{en ? "Body locations" : "正文定位"}</span><strong>{located}/{sections}</strong><small>{en ? "sections located" : "已定位章节"}</small></article>
           </section>
 
@@ -249,7 +295,7 @@ export function TaskWorkspace({ taskId, locale }: { taskId: string; locale: Loca
             <section className="review-action failed"><div><strong>{en ? "The deep review stopped" : "深度检查未完成"}</strong><p>{task.error_message}</p><button type="button" className="secondary-button" onClick={retry}>{en ? "Try again" : "重新检查"}</button><button type="button" className="secondary-button" onClick={purgeTemporaryAssets}>{en ? "Clear temporary material and close" : "清理临时材料并结束"}</button></div></section>
           )}
           {comparisonBudgetExhausted && (
-            <section className="review-action failed"><div><strong>{en ? "Part of the source corpus was not compared" : "部分来源文本未进入比较"}</strong><p>{en ? "This task reached its candidate-comparison limit. The report records the actual coverage; no conclusion is drawn for the unprocessed remainder." : "本任务已达到候选文本块比较上限。报告会记录实际覆盖范围，未处理部分不作结论。"}</p></div></section>
+            <section className="review-action failed"><div><strong>{en ? "Part of the analysis reached its computation limit" : "部分分析达到计算上限"}</strong><p>{en ? "The report records the actual coverage for each check; no conclusion is drawn for the unprocessed remainder." : "报告会逐项记录实际覆盖范围，未处理部分不作结论。"}</p></div></section>
           )}
 
           <section className="review-grid">

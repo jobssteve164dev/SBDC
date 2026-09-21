@@ -31,7 +31,7 @@ export default async function Home() {
           <blockquote>{en ? <>Not an arbitrary score,<br />but a path others can review.</> : <>不是给出一个武断分数，<br />而是保留一条复核路径。</>}</blockquote>
           <div className="evidence-line"><span>{en ? "Paper structure" : "论文结构"}</span><strong>{en ? "Title · sections · pages" : "题名 · 章节 · 页码"}</strong></div>
           <div className="evidence-line"><span>{en ? "References" : "参考文献"}</span><strong>{en ? "Entries · identifiers · locations" : "条目 · 标识符 · 位置"}</strong></div>
-          <p className="preview-boundary">{en ? "Textual, statistical and image-evidence checks are still being built and are not included in current results." : "文本、统计与图片证据检查仍在后续建设中；当前结果不包含这些结论。"}</p>
+          <p className="preview-boundary">{en ? "Text reuse, semantic similarity, citation support, reproducible statistics and figure regions are checked with their actual coverage and limits shown." : "文本复用、语义近似、引用支持、可复算统计与图片局部核对均展示实际覆盖和能力边界。"}</p>
         </aside>
       </section>
 
