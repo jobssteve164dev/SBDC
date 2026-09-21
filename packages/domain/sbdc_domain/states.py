@@ -6,6 +6,12 @@ class TaskStatus(StrEnum):
     VALIDATING = "validating"
     PARSING = "parsing"
     REFERENCES_READY = "references_ready"
+    CHECKING = "checking"
+    CHECKING_FAILED = "checking_failed"
+    REVIEW_READY = "review_ready"
+    REVIEWED = "reviewed"
+    REPORTING = "reporting"
+    COMPLETED = "completed"
     VALIDATION_FAILED = "validation_failed"
     PARSING_FAILED = "parsing_failed"
 
@@ -16,7 +22,13 @@ ALLOWED_TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
     TaskStatus.VALIDATION_FAILED: {TaskStatus.VALIDATING},
     TaskStatus.PARSING: {TaskStatus.REFERENCES_READY, TaskStatus.PARSING_FAILED},
     TaskStatus.PARSING_FAILED: {TaskStatus.PARSING},
-    TaskStatus.REFERENCES_READY: set(),
+    TaskStatus.REFERENCES_READY: {TaskStatus.CHECKING},
+    TaskStatus.CHECKING: {TaskStatus.REVIEW_READY, TaskStatus.REVIEWED, TaskStatus.CHECKING_FAILED},
+    TaskStatus.CHECKING_FAILED: {TaskStatus.CHECKING},
+    TaskStatus.REVIEW_READY: {TaskStatus.CHECKING, TaskStatus.REVIEWED},
+    TaskStatus.REVIEWED: {TaskStatus.REPORTING},
+    TaskStatus.REPORTING: {TaskStatus.COMPLETED},
+    TaskStatus.COMPLETED: set(),
 }
 
 

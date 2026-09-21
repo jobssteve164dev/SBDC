@@ -17,6 +17,7 @@ dependencies = [
   "pydantic-settings==2.9.1",
   "pymupdf==1.26.0",
   "python-multipart==0.0.32",
+  "reportlab==5.0.1",
   "sqlalchemy==2.0.41",
   "uvicorn[standard]==0.34.3",
 ]

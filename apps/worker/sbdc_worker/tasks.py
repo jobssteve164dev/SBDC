@@ -1,3 +1,5 @@
+import hashlib
+import json
 import logging
 import uuid
 
@@ -6,12 +8,16 @@ from sqlalchemy import delete, select
 
 from sbdc_api.config import get_settings
 from sbdc_api.database import SessionLocal
-from sbdc_api.models import AuditEvent, DocumentAsset, PaperTask, ParsedDocument, ParseRun, ReferenceSource
+from sbdc_api.models import (
+    AuditEvent, DocumentAsset, EvidenceRecord, PaperTask, ParsedDocument, ParseRun,
+    ReferenceSource, ReviewRun,
+)
 from sbdc_api.storage import get_bytes, put_bytes
 from sbdc_domain import CoverageSummary, TaskStatus
 
 from .celery_app import app
 from .tei import parse_tei
+from .deep_review import METHOD_VERSION, analyze_pdf
 
 
 settings = get_settings()
@@ -145,6 +151,107 @@ def parse_document(task_id: str, run_id: str) -> dict[str, str]:
             task.error_message = "解析服务未能识别这份 PDF，请确认文件可正常阅读后重试"
             run.status = "failed"
             db.add(AuditEvent(task_id=task.id, event_type="parse.failed", details={"reason": "document_parse_failed"}))
+            db.commit()
+        return {"status": "failed"}
+    finally:
+        db.close()
+
+
+@app.task(name="sbdc.deep_review_document")
+def deep_review_document(task_id: str, run_id: str) -> dict[str, str]:
+    parsed_task_id = uuid.UUID(task_id)
+    parsed_run_id = uuid.UUID(run_id)
+    db = SessionLocal()
+    try:
+        task = db.scalar(select(PaperTask).where(PaperTask.id == parsed_task_id).with_for_update())
+        run = db.get(ReviewRun, parsed_run_id)
+        if task is None or run is None or run.task_id != parsed_task_id:
+            return {"status": "ignored", "reason": "task_or_run_missing"}
+        asset = db.get(DocumentAsset, task.source_file_id)
+        if asset is None or asset.task_id != task.id or asset.sha256 != run.source_sha256:
+            run.status = "ignored"
+            db.commit()
+            return {"status": "ignored", "reason": "source_changed"}
+        run.status = "running"
+        db.commit()
+
+        analysis = analyze_pdf(get_bytes(asset.storage_key), document_id=str(asset.id))
+        document = db.scalar(select(ParsedDocument).where(ParsedDocument.task_id == task.id))
+        references = list(db.scalars(select(ReferenceSource).where(ReferenceSource.task_id == task.id)))
+        analysis["title"] = document.title if document and document.title else analysis.get("title")
+        analysis["coverage"]["references_total"] = len(references)
+        analysis["coverage"]["reference_full_texts_obtained"] = sum(
+            1 for reference in references if reference.full_text_status == "obtained"
+        )
+        evidence_version = f"{asset.sha256}:{METHOD_VERSION}"
+        for item in analysis["evidence"]:
+            fingerprint = hashlib.sha256(
+                json.dumps(
+                    {
+                        "code": item["code"],
+                        "subject_location": item["subject_location"],
+                        "source_location": item["source_location"],
+                        "subject_excerpt": item["subject_excerpt"],
+                    },
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode()
+            ).hexdigest()
+            existing = db.scalar(
+                select(EvidenceRecord).where(
+                    EvidenceRecord.task_id == task.id,
+                    EvidenceRecord.fingerprint == fingerprint,
+                    EvidenceRecord.evidence_version == evidence_version,
+                )
+            )
+            values = {
+                key: item[key]
+                for key in (
+                    "category", "status", "severity", "confidence", "subject_location", "source_location",
+                    "subject_excerpt", "source_excerpt", "explanation", "method", "limitations", "artifacts",
+                )
+            }
+            if existing is None:
+                db.add(
+                    EvidenceRecord(
+                        task_id=task.id, code=item["code"], fingerprint=fingerprint,
+                        evidence_version=evidence_version, **values
+                    )
+                )
+            else:
+                for key, value in values.items():
+                    setattr(existing, key, value)
+        task.coverage_summary = {**task.coverage_summary, **analysis["coverage"], "method_version": METHOD_VERSION}
+        if analysis["evidence"]:
+            task.status = TaskStatus.REVIEW_READY.value
+            task.stage_message = "深度检查完成，请逐项复核证据"
+        else:
+            task.status = TaskStatus.REVIEWED.value
+            task.stage_message = "深度检查完成，未发现需要人工裁决的证据"
+        task.error_code = None
+        task.error_message = None
+        run.status = "succeeded"
+        db.add(
+            AuditEvent(
+                task_id=task.id,
+                event_type="review.completed",
+                details={"method_version": METHOD_VERSION, "evidence_count": len(analysis["evidence"])},
+            )
+        )
+        db.commit()
+        return {"status": "completed"}
+    except Exception as exc:
+        db.rollback()
+        logger.error("deep review failed", extra={"task_id": task_id, "error_type": type(exc).__name__})
+        task = db.get(PaperTask, parsed_task_id)
+        run = db.get(ReviewRun, parsed_run_id)
+        if task is not None and run is not None:
+            task.status = TaskStatus.CHECKING_FAILED.value
+            task.stage_message = "深度检查未能完成"
+            task.error_code = "deep_review_failed"
+            task.error_message = "检查服务未能完成证据提取，请稍后重试"
+            run.status = "failed"
+            db.add(AuditEvent(task_id=task.id, event_type="review.failed", details={"reason": "deep_review_failed"}))
             db.commit()
         return {"status": "failed"}
     finally:

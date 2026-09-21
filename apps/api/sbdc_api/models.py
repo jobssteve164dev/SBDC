@@ -24,6 +24,8 @@ class PaperTask(Base):
     )
     parse_attempt: Mapped[int] = mapped_column(nullable=False, default=0)
     parse_source_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    review_attempt: Mapped[int] = mapped_column(nullable=False, default=0)
+    review_source_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
     error_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
     error_message: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -91,6 +93,12 @@ class ReferenceSource(Base):
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     page: Mapped[int | None] = mapped_column(nullable=True)
     bbox: Mapped[list[float] | None] = mapped_column(JSONB, nullable=True)
+    metadata_status: Mapped[str] = mapped_column(String(30), nullable=False, default="not_checked")
+    full_text_status: Mapped[str] = mapped_column(String(30), nullable=False, default="not_checked")
+    full_text_asset_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("document_assets.id", ondelete="SET NULL"), nullable=True
+    )
+    access_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -114,6 +122,73 @@ class ParseRun(Base):
     attempt: Mapped[int] = mapped_column(nullable=False)
     celery_task_id: Mapped[str] = mapped_column(String(200), nullable=False, unique=True)
     status: Mapped[str] = mapped_column(String(30), nullable=False, default="queued")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ReviewRun(Base):
+    __tablename__ = "review_runs"
+    __table_args__ = (
+        UniqueConstraint("task_id", "source_sha256", "attempt", name="uq_review_run_attempt"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    task_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("paper_tasks.id", ondelete="CASCADE"), index=True)
+    source_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    method_version: Mapped[str] = mapped_column(String(80), nullable=False)
+    attempt: Mapped[int] = mapped_column(nullable=False)
+    celery_task_id: Mapped[str] = mapped_column(String(200), nullable=False, unique=True)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="queued")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class EvidenceRecord(Base):
+    __tablename__ = "evidence_items"
+    __table_args__ = (
+        UniqueConstraint("task_id", "fingerprint", "evidence_version", name="uq_evidence_task_fingerprint_version"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    task_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("paper_tasks.id", ondelete="CASCADE"), index=True)
+    code: Mapped[str] = mapped_column(String(100), nullable=False)
+    fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    category: Mapped[str] = mapped_column(String(60), nullable=False)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="needs_review")
+    severity: Mapped[str] = mapped_column(String(20), nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    subject_location: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    source_location: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    subject_excerpt: Mapped[str] = mapped_column(Text, nullable=False)
+    source_excerpt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    explanation: Mapped[str] = mapped_column(Text, nullable=False)
+    method: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    limitations: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    artifacts: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    evidence_version: Mapped[str] = mapped_column(String(160), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class EvidenceDecision(Base):
+    __tablename__ = "evidence_decisions"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    task_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("paper_tasks.id", ondelete="CASCADE"), index=True)
+    evidence_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("evidence_items.id", ondelete="CASCADE"), index=True)
+    decision: Mapped[str] = mapped_column(String(30), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    reviewer_id: Mapped[str] = mapped_column(String(120), nullable=False)
+    evidence_version: Mapped[str] = mapped_column(String(160), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ReviewReport(Base):
+    __tablename__ = "review_reports"
+    __table_args__ = (UniqueConstraint("task_id", "evidence_version", name="uq_report_task_version"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    task_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("paper_tasks.id", ondelete="CASCADE"), index=True)
+    asset_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("document_assets.id", ondelete="RESTRICT"))
+    evidence_version: Mapped[str] = mapped_column(String(160), nullable=False)
+    coverage_summary: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

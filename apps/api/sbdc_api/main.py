@@ -15,7 +15,7 @@ import fitz
 from fastapi import Cookie, Depends, FastAPI, File, Form, Header, HTTPException, Request, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from sbdc_domain import CoverageSummary, TaskStatus, transition_task
@@ -23,18 +23,23 @@ from sbdc_domain import CoverageSummary, TaskStatus, transition_task
 from .config import get_settings
 from .database import SessionLocal, get_db
 from .models import (
-    AuditEvent, DocumentAsset, PaperTask, ParsedDocument, ParseRun, PublicSession,
-    PublicUser, ReferenceSource, ResearchSubmission,
+    AuditEvent, DocumentAsset, EvidenceDecision, EvidenceRecord, PaperTask, ParsedDocument,
+    ParseRun, PublicSession, PublicUser, ReferenceSource, ResearchSubmission, ReviewReport, ReviewRun,
 )
 from .public_auth import hash_password, normalize_email, verify_password
 from .public_rate_limit import public_rate_limiter
 from .queue import celery_client
 from .schemas import (
-    AssetOut, ParseAccepted, ParsedDocumentOut, PublicUserOut, ReferenceOut,
+    AssetOut, CheckAccepted, DecisionIn, DecisionOut, EvidenceOut, ParseAccepted, ParsedDocumentOut,
+    PublicUserOut, ReferenceOut, ReportOut,
     PublicReviewNoticeOut, PublicSubmissionOut, ReviewerSubmissionOut,
     SubmissionOut, TaskCreate, TaskOut,
 )
-from .storage import ensure_bucket, put_file, remove_object, source_storage_key, stream_object, submission_storage_key
+from .storage import (
+    ensure_bucket, put_bytes, put_file, remove_object, report_storage_key, source_storage_key,
+    stream_object, submission_storage_key,
+)
+from sbdc_worker.deep_review import METHOD_VERSION, render_pdf_report
 
 
 settings = get_settings()
@@ -184,6 +189,10 @@ def task_response(db: Session, task: PaperTask) -> TaskOut:
     references = list(
         db.scalars(select(ReferenceSource).where(ReferenceSource.task_id == task.id).order_by(ReferenceSource.ordinal))
     )
+    report = db.scalar(
+        select(ReviewReport).where(ReviewReport.task_id == task.id).order_by(ReviewReport.created_at.desc()).limit(1)
+    )
+    report_asset = db.get(DocumentAsset, report.asset_id) if report else None
     return TaskOut(
         id=task.id,
         status=task.status,
@@ -199,6 +208,7 @@ def task_response(db: Session, task: PaperTask) -> TaskOut:
         source_asset=AssetOut.model_validate(asset) if asset else None,
         document=ParsedDocumentOut.model_validate(document) if document else None,
         references=[ReferenceOut.model_validate(item) for item in references],
+        report_asset=AssetOut.model_validate(report_asset) if report_asset else None,
     )
 
 
@@ -794,4 +804,233 @@ def get_asset_content(task_id: uuid.UUID, asset_id: uuid.UUID, db: Session = Dep
         stream_object(asset.storage_key),
         media_type=asset.media_type,
         headers={"Content-Disposition": 'inline; filename="paper.pdf"', "Cache-Control": "private, no-store"},
+    )
+
+
+@app.post("/tasks/{task_id}/checks", response_model=CheckAccepted, status_code=status.HTTP_202_ACCEPTED)
+def start_checks(task_id: uuid.UUID, db: Session = Depends(get_db)) -> CheckAccepted:
+    task = get_task_or_404(db, task_id, lock=True)
+    if task.source_file_id is None:
+        raise HTTPException(status_code=409, detail="请先上传并解析论文")
+    asset = db.get(DocumentAsset, task.source_file_id)
+    if asset is None or asset.task_id != task.id:
+        raise HTTPException(status_code=409, detail="源论文资产不可用")
+    existing = db.scalar(
+        select(EvidenceRecord).where(
+            EvidenceRecord.task_id == task.id,
+            EvidenceRecord.evidence_version == f"{asset.sha256}:{METHOD_VERSION}",
+        ).limit(1)
+    )
+    if existing is not None and task.status in {
+        TaskStatus.REVIEW_READY.value, TaskStatus.REVIEWED.value, TaskStatus.COMPLETED.value,
+    }:
+        return CheckAccepted(task_id=task.id, status=task.status, enqueued=False)
+    if task.status not in {TaskStatus.REFERENCES_READY.value, TaskStatus.CHECKING_FAILED.value}:
+        raise HTTPException(status_code=409, detail="当前状态不能开始深度检查")
+
+    task.status = transition_task(task.status, TaskStatus.CHECKING).value
+    task.stage_message = "正在核对全文、数值、图片与证据边界"
+    task.error_code = None
+    task.error_message = None
+    task.review_attempt += 1
+    task.review_source_sha256 = asset.sha256
+    celery_task_id = f"review:{task.id}:{asset.sha256[:16]}:{task.review_attempt}"
+    run = ReviewRun(
+        task_id=task.id,
+        source_sha256=asset.sha256,
+        method_version=METHOD_VERSION,
+        attempt=task.review_attempt,
+        celery_task_id=celery_task_id,
+    )
+    db.add(run)
+    db.add(AuditEvent(task_id=task.id, event_type="review.queued", details={"attempt": task.review_attempt}))
+    db.commit()
+    try:
+        celery_client.send_task("sbdc.deep_review_document", args=[str(task.id), str(run.id)], task_id=celery_task_id)
+    except Exception:
+        task.status = TaskStatus.CHECKING_FAILED.value
+        task.stage_message = "深度检查任务未能启动"
+        task.error_code = "queue_unavailable"
+        task.error_message = "检查服务暂时不可用，请稍后重试"
+        run.status = "failed"
+        db.add(AuditEvent(task_id=task.id, event_type="review.failed", details={"reason": "queue_unavailable"}))
+        db.commit()
+        raise HTTPException(status_code=503, detail=task.error_message) from None
+    return CheckAccepted(task_id=task.id, status=task.status, enqueued=True)
+
+
+def latest_decision(db: Session, evidence_id: uuid.UUID) -> EvidenceDecision | None:
+    return db.scalar(
+        select(EvidenceDecision)
+        .where(EvidenceDecision.evidence_id == evidence_id)
+        .order_by(EvidenceDecision.created_at.desc(), EvidenceDecision.id.desc())
+        .limit(1)
+    )
+
+
+@app.get("/tasks/{task_id}/evidence", response_model=list[EvidenceOut])
+def list_evidence(task_id: uuid.UUID, db: Session = Depends(get_db)) -> list[EvidenceOut]:
+    get_task_or_404(db, task_id)
+    items = list(
+        db.scalars(
+            select(EvidenceRecord)
+            .where(EvidenceRecord.task_id == task_id)
+            .order_by(EvidenceRecord.severity.desc(), EvidenceRecord.created_at)
+        )
+    )
+    return [
+        EvidenceOut(
+            **EvidenceOut.model_validate(item).model_dump(exclude={"decision"}),
+            decision=DecisionOut.model_validate(decision) if (decision := latest_decision(db, item.id)) else None,
+        )
+        for item in items
+    ]
+
+
+@app.post("/evidence/{evidence_id}/decisions", response_model=DecisionOut, status_code=status.HTTP_201_CREATED)
+def decide_evidence(evidence_id: uuid.UUID, payload: DecisionIn, db: Session = Depends(get_db)) -> DecisionOut:
+    evidence = db.get(EvidenceRecord, evidence_id)
+    if evidence is None:
+        raise HTTPException(status_code=404, detail="证据不存在")
+    task = get_task_or_404(db, evidence.task_id, lock=True)
+    if task.status not in {TaskStatus.REVIEW_READY.value, TaskStatus.REVIEWED.value}:
+        raise HTTPException(status_code=409, detail="当前状态不能提交复核决定")
+    decision = EvidenceDecision(
+        task_id=task.id,
+        evidence_id=evidence.id,
+        decision=payload.decision,
+        reason=payload.reason.strip(),
+        reviewer_id="internal-reviewer",
+        evidence_version=evidence.evidence_version,
+    )
+    evidence.status = {
+        "confirmed": "verified_anomaly",
+        "needs_material": "needs_review",
+        "insufficient": "insufficient",
+        "reasonable": "reasonable",
+    }[payload.decision]
+    db.add(decision)
+    db.flush()
+    evidence_count = db.scalar(select(func.count()).select_from(EvidenceRecord).where(EvidenceRecord.task_id == task.id)) or 0
+    decided_count = db.scalar(
+        select(func.count(func.distinct(EvidenceDecision.evidence_id))).where(EvidenceDecision.task_id == task.id)
+    ) or 0
+    if evidence_count and decided_count >= evidence_count:
+        task.status = TaskStatus.REVIEWED.value
+        task.stage_message = "证据复核完成，可以生成报告"
+    db.add(AuditEvent(task_id=task.id, event_type="evidence.decided", details={"evidence_id": str(evidence.id), "decision": payload.decision}))
+    db.commit()
+    db.refresh(decision)
+    return DecisionOut.model_validate(decision)
+
+
+@app.post("/tasks/{task_id}/reports", response_model=ReportOut, status_code=status.HTTP_201_CREATED)
+def create_report(task_id: uuid.UUID, db: Session = Depends(get_db)) -> ReportOut:
+    task = get_task_or_404(db, task_id, lock=True)
+    if task.status not in {TaskStatus.REVIEWED.value, TaskStatus.COMPLETED.value}:
+        raise HTTPException(status_code=409, detail="请先完成每一项证据的人工复核")
+    evidence = list(db.scalars(select(EvidenceRecord).where(EvidenceRecord.task_id == task.id).order_by(EvidenceRecord.created_at)))
+    decisions = [latest_decision(db, item.id) for item in evidence]
+    if any(item is None for item in decisions):
+        raise HTTPException(status_code=409, detail="请先完成每一项证据的人工复核")
+    version_payload = json.dumps(
+        [(str(item.id), item.evidence_version, str(decision.id)) for item, decision in zip(evidence, decisions, strict=True)],
+        separators=(",", ":"),
+    ).encode()
+    evidence_version = hashlib.sha256(version_payload).hexdigest()
+    existing = db.scalar(
+        select(ReviewReport).where(ReviewReport.task_id == task.id, ReviewReport.evidence_version == evidence_version)
+    )
+    if existing is not None:
+        return ReportOut(
+            id=existing.id, task_id=task.id, asset_id=existing.asset_id, evidence_version=evidence_version,
+            download_url=f"/backend/tasks/{task.id}/assets/{existing.asset_id}/content", created_at=existing.created_at,
+        )
+    document = db.scalar(select(ParsedDocument).where(ParsedDocument.task_id == task.id))
+    task.status = transition_task(task.status, TaskStatus.REPORTING).value
+    task.stage_message = "正在生成可信报告"
+    db.commit()
+    analysis = {
+        "title": document.title if document else None,
+        "method_version": METHOD_VERSION,
+        "generated_at": datetime.now(UTC).isoformat(),
+        "coverage": task.coverage_summary,
+        "evidence": [
+            {
+                "id": str(item.id),
+                "code": item.code,
+                "confidence": item.confidence,
+                "subject_location": item.subject_location,
+                "source_location": item.source_location,
+                "subject_excerpt": item.subject_excerpt,
+                "source_excerpt": item.source_excerpt,
+                "explanation": item.explanation,
+                "method": item.method,
+                "limitations": item.limitations,
+            }
+            for item in evidence
+        ],
+        "decisions": [
+            {"evidence_id": str(item.id), "evidence_code": item.code, "decision": decision.decision, "reason": decision.reason}
+            for item, decision in zip(evidence, decisions, strict=True)
+        ],
+        "limitations": [
+            "本轮为 PDF-only 审核，未取得论文所依赖的原始数据、分析文件、原始图像或研究记录。",
+            "引用支持与文本复用结论受已合法取得的引用全文覆盖率限制。",
+            "PDF 内嵌位图仅进行了精确像素复用初筛；小型装饰图已排除，无原图时不能认证图片真实性。",
+        ],
+    }
+    asset_id = uuid.uuid4()
+    key = report_storage_key(str(task.id), str(asset_id))
+    stored = False
+    try:
+        report_bytes = render_pdf_report(analysis)
+        put_bytes(key, report_bytes, "application/pdf")
+        stored = True
+        asset = DocumentAsset(
+            id=asset_id,
+            task_id=task.id,
+            role="review_report",
+            storage_key=key,
+            sha256=hashlib.sha256(report_bytes).hexdigest(),
+            media_type="application/pdf",
+            size_bytes=len(report_bytes),
+            license_status="derived_private",
+            provenance={"generator": "sbdc", "method_version": METHOD_VERSION, "evidence_version": evidence_version},
+        )
+        db.add(asset)
+        db.flush()
+        report = ReviewReport(
+            task_id=task.id,
+            asset_id=asset.id,
+            evidence_version=evidence_version,
+            coverage_summary=task.coverage_summary,
+        )
+        db.add(report)
+        task.status = TaskStatus.COMPLETED.value
+        task.stage_message = "深度审核报告已生成"
+        task.error_code = None
+        task.error_message = None
+        db.add(AuditEvent(task_id=task.id, event_type="report.completed", details={"asset_id": str(asset.id), "evidence_version": evidence_version}))
+        db.commit()
+    except Exception:
+        db.rollback()
+        if stored:
+            try:
+                remove_object(key)
+            except Exception:
+                logger.exception("report object cleanup failed for key %s", key)
+        failed_task = db.get(PaperTask, task_id)
+        if failed_task is not None:
+            failed_task.status = TaskStatus.REVIEWED.value
+            failed_task.stage_message = "报告生成失败，可以重试"
+            failed_task.error_code = "report_generation_failed"
+            failed_task.error_message = "报告暂时无法生成，请稍后重试"
+        db.commit()
+        detail = failed_task.error_message if failed_task is not None else "报告暂时无法生成，请稍后重试"
+        raise HTTPException(status_code=503, detail=detail) from None
+    db.refresh(report)
+    return ReportOut(
+        id=report.id, task_id=task.id, asset_id=asset.id, evidence_version=evidence_version,
+        download_url=f"/backend/tasks/{task.id}/assets/{asset.id}/content", created_at=report.created_at,
     )

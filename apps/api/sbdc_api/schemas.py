@@ -37,6 +37,8 @@ class ReferenceOut(BaseModel):
     confidence: float | None
     page: int | None
     bbox: list[float] | None
+    metadata_status: str
+    full_text_status: str
 
 
 class ParsedDocumentOut(BaseModel):
@@ -66,12 +68,63 @@ class TaskOut(BaseModel):
     source_asset: AssetOut | None = None
     document: ParsedDocumentOut | None = None
     references: list[ReferenceOut] = Field(default_factory=list)
+    report_asset: AssetOut | None = None
 
 
 class ParseAccepted(BaseModel):
     task_id: uuid.UUID
     status: str
     enqueued: bool
+
+
+class CheckAccepted(ParseAccepted):
+    pass
+
+
+class DecisionIn(BaseModel):
+    decision: str = Field(pattern="^(confirmed|needs_material|insufficient|reasonable)$")
+    reason: str = Field(min_length=10, max_length=2000)
+
+
+class DecisionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    evidence_id: uuid.UUID
+    decision: str
+    reason: str
+    reviewer_id: str
+    evidence_version: str
+    created_at: datetime
+
+
+class EvidenceOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
+    code: str
+    category: str
+    status: str
+    severity: str
+    confidence: float
+    subject_location: dict[str, Any]
+    source_location: dict[str, Any] | None
+    subject_excerpt: str
+    source_excerpt: str | None
+    explanation: str
+    method: dict[str, Any]
+    limitations: list[str]
+    artifacts: list[str]
+    evidence_version: str
+    created_at: datetime
+    decision: DecisionOut | None = None
+
+
+class ReportOut(BaseModel):
+    id: uuid.UUID
+    task_id: uuid.UUID
+    asset_id: uuid.UUID
+    evidence_version: str
+    download_url: str
+    created_at: datetime
 
 
 class PublicUserOut(BaseModel):

@@ -360,6 +360,33 @@ test("正确凭据建立会话并允许进入工作台", async () => {
   assert.match(response.headers.get("set-cookie"), /SameSite=Strict/i);
 });
 
+test("审查者能从证据卡直接定位原文并作出复核决定", async (t) => {
+  const executablePath = await chromiumExecutable();
+  if (!executablePath) {
+    t.skip("Chromium unavailable");
+    return;
+  }
+  const browser = await chromium.launch({ executablePath, headless: true, args: ["--no-sandbox"] });
+  try {
+    const context = await browser.newContext();
+    await context.request.post(`${baseUrl}/auth/login`, {
+      form: { username, password, next: "/workbench" }, maxRedirects: 0,
+    });
+    const page = await context.newPage();
+    await page.goto(`${baseUrl}/tasks/11111111-1111-1111-1111-111111111111`, { waitUntil: "networkidle" });
+    await page.getByRole("heading", { name: "不同条件的结果来自不同研究对象" }).waitFor();
+    assert.equal(await page.getByRole("button", { name: "第 4 页 ↗" }).isVisible(), true);
+    assert.equal(await page.getByRole("button", { name: "对照第 1 页 ↗" }).isVisible(), true);
+    assert.equal(await page.getByLabel("复核决定").isVisible(), true);
+    assert.equal(await page.getByLabel("裁决理由").isVisible(), true);
+    const text = await page.locator("main").innerText();
+    assert.match(text, /不构成对作者主观故意或学术不端的自动判定/);
+    assert.doesNotMatch(text, /EvidenceItem|method_version|对象模型/);
+  } finally {
+    await browser.close();
+  }
+});
+
 test("站外返回地址会被收敛到工作台路径", async () => {
   const body = new URLSearchParams({ username, password, next: "//attacker.example/path" });
   const response = await fetch(`${baseUrl}/auth/login`, {

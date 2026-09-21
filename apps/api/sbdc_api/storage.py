@@ -23,6 +23,10 @@ def submission_storage_key(submission_id: str, asset_id: str) -> str:
     return f"submissions/{submission_id}/source/{asset_id}.pdf"
 
 
+def report_storage_key(task_id: str, asset_id: str) -> str:
+    return f"tasks/{task_id}/reports/{asset_id}.pdf"
+
+
 def ensure_bucket() -> None:
     if not client.bucket_exists(settings.minio_bucket):
         client.make_bucket(settings.minio_bucket)

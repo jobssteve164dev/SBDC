@@ -1,6 +1,6 @@
 # SBDC 项目长期记忆
 
-最后更新：2026-09-10
+最后更新：2026-09-21
 
 ## 项目目标
 
@@ -24,10 +24,11 @@ SBDC 的正式英文名是 `Source-Based Deep Check`，中文含义为“基于�
 - 已建立 `apps/web`、`apps/api`、`apps/worker` 与 `packages/domain` 工程骨架。
 - 已实现数字版 PDF 的任务创建、受限上传、SHA-256、任务隔离存储、Celery 幂等调度、GROBID 解析、结构与引用覆盖率展示。
 - 已建立 PostgreSQL 初始迁移和 PostgreSQL、Redis、MinIO、GROBID 本地 Compose。
+- 已建立面向任意论文 PDF 的通用证据初筛阶段：全文文本块、非小型 PDF 内嵌位图和测量条件一致性规则统一生成带页码与坐标的证据项；审查者可逐项裁决并生成固定版本 PDF 报告。`Room Temperature Triggered Single Photon Emission from Self-Assembled GaN/AlN Quantum Dot in Nanowire` 只作为真实验收样本，不是规则前提。
 - 主域名根路径是公众营销落地页；审查者登录与工作台分别位于 `/login`、`/workbench`。
 - 已建立独立的公众投稿账号与 `/submit` 科研监督投稿入口。公众账号只能提交并查看自己的收件记录，不能访问审查工作台；审查者可在工作台查看投稿队列。
 - 页脚通过产品内页面读取 SZLKlaws 的七类共享法律文件和 SBDC 产品法律补充，并展示 SZLK LTD 公司主体与官网。
-- 文本查重、引用全文获取、统计检查、图片取证、人工裁决与报告仍属于后续切片，当前页面不声称完成这些检查。
+- 人工裁决、报告、PDF 内精确图片复用初筛和部分全文一致性规则已落地；引用开放全文获取、任务级临时索引、引用支持核验、完整统计复算、原图取证与生命周期清理仍属于后续切片，当前报告必须如实显示覆盖率与能力边界。
 
 ## 文档入口
 

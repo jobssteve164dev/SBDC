@@ -48,6 +48,20 @@ def test_task_state_machine_rejects_invalid_transition():
         transition_task(TaskStatus.CREATED, TaskStatus.REFERENCES_READY)
 
 
+def test_task_state_machine_supports_review_decision_and_report_lifecycle():
+    status = transition_task(TaskStatus.REFERENCES_READY, TaskStatus.CHECKING)
+    status = transition_task(status, TaskStatus.REVIEW_READY)
+    status = transition_task(status, TaskStatus.REVIEWED)
+    status = transition_task(status, TaskStatus.REPORTING)
+    status = transition_task(status, TaskStatus.COMPLETED)
+    assert status == TaskStatus.COMPLETED
+
+
+def test_task_state_machine_allows_a_review_with_no_findings_to_reach_reporting():
+    status = transition_task(TaskStatus.CHECKING, TaskStatus.REVIEWED)
+    assert status == TaskStatus.REVIEWED
+
+
 def test_storage_key_uses_only_system_ids():
     key = source_storage_key("task-id", "asset-id")
     assert key == "tasks/task-id/source/asset-id.pdf"
