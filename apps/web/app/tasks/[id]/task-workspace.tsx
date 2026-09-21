@@ -9,6 +9,7 @@ type Section = Location & { ordinal: number; heading: string; paragraphs: Array<
 type Reference = Location & {
   id: string; ordinal: number; raw_citation: string; title: string | null; authors: string[];
   year: string | null; venue: string | null; doi: string | null; parse_status: string; failure_reason: string | null;
+  metadata_status: string; full_text_status: string; full_text_asset_id: string | null; access_url: string | null;
 };
 type Task = {
   id: string; status: string; stage_message: string; error_message: string | null;
@@ -22,18 +23,31 @@ type Task = {
 type Decision = { decision: string; reason: string };
 type Evidence = {
   id: string; code: string; status: string; severity: string; confidence: number;
-  subject_location: { page: number | null; bbox: number[] | null };
-  source_location: { page: number | null; bbox: number[] | null } | null;
-  subject_excerpt: string; explanation: string; limitations: string[]; decision: Decision | null;
+  subject_location: { document_id: string; page: number | null; bbox: number[] | null };
+  source_location: { document_id: string; page: number | null; bbox: number[] | null } | null;
+  subject_excerpt: string; source_excerpt: string | null; explanation: string; limitations: string[]; decision: Decision | null;
 };
 
-const terminal = new Set(["review_ready", "reviewed", "completed", "validation_failed", "parsing_failed", "checking_failed"]);
-const failureText: Record<string, string> = { bibliographic_fields_missing: "未识别出足够的书目信息" };
+const terminal = new Set(["review_ready", "reviewed", "completed", "purged", "purge_failed", "validation_failed", "parsing_failed", "checking_failed"]);
+const failureText: Record<string, [string, string]> = {
+  bibliographic_fields_missing: ["未识别出足够的书目信息", "Insufficient bibliographic information"],
+  open_full_text_unavailable_or_invalid: ["开放全文无法安全读取", "The open copy could not be read safely"],
+};
+const fullTextStatus: Record<string, [string, string]> = {
+  not_checked: ["等待检查", "Pending"], available: ["已找到开放全文", "Open copy found"],
+  obtained: ["已取得并进入检查", "Obtained and checked"], not_open_access: ["未发现合法开放全文", "No lawful open copy found"],
+  identifier_missing: ["缺少稳定标识，未能定位全文", "No stable identifier for full-text lookup"],
+  metadata_unavailable: ["书目信息不足", "Bibliographic metadata unavailable"], oa_lookup_failed: ["开放来源查询失败，可重试", "Open-source lookup failed; retry available"],
+  download_failed: ["开放全文无法安全读取", "Open copy could not be read safely"], purged: ["临时全文已清理", "Temporary full text cleared"],
+  obtained_no_text: ["已取得，但没有可提取文本", "Obtained, but no extractable text"],
+  budget_exceeded: ["超出本任务处理上限，未进入对照", "Skipped because this task reached its processing limit"],
+};
 const evidenceTitle: Record<string, [string, string]> = {
   cross_condition_subject_mismatch: ["不同条件的结果来自不同研究对象", "Different conditions use different study subjects"],
   measurement_condition_inconsistency: ["同一数值结果关联多个条件标签", "One result is linked to multiple condition labels"],
   data_not_directly_available: ["关键原始数据未直接提供", "Key raw data are not directly available"],
   embedded_image_reuse_candidate: ["PDF 内出现相同位图候选", "An identical embedded bitmap appears more than once"],
+  reference_text_reuse_candidate: ["与引用来源存在连续文本重合", "Continuous text overlaps a cited source"],
 };
 
 export function TaskWorkspace({ taskId, locale }: { taskId: string; locale: Locale }) {
@@ -45,6 +59,7 @@ export function TaskWorkspace({ taskId, locale }: { taskId: string; locale: Loca
   const [page, setPage] = useState(1);
   const [decisionDrafts, setDecisionDrafts] = useState<Record<string, Decision>>({});
   const [reportUrl, setReportUrl] = useState<string | null>(null);
+  const [activePdfAssetId, setActivePdfAssetId] = useState<string | null>(null);
   const checksStarted = useRef(false);
 
   const load = useCallback(async () => {
@@ -89,7 +104,7 @@ export function TaskWorkspace({ taskId, locale }: { taskId: string; locale: Loca
   }, [task?.status, taskId, en, load]);
 
   useEffect(() => {
-    if (!task || !["review_ready", "reviewed", "completed"].includes(task.status)) return;
+    if (!task || !["review_ready", "reviewed", "completed", "retention_pending", "purged", "purge_failed"].includes(task.status)) return;
     void fetch(`/backend/tasks/${taskId}/evidence`, { cache: "no-store" })
       .then(async (response) => {
         if (!response.ok) throw new Error(en ? "Evidence is temporarily unavailable" : "暂时无法读取证据");
@@ -100,6 +115,13 @@ export function TaskWorkspace({ taskId, locale }: { taskId: string; locale: Loca
       })
       .catch((reason) => setLoadError(reason instanceof Error ? reason.message : (en ? "Evidence is temporarily unavailable" : "暂时无法读取证据")));
   }, [task?.status, taskId, en]);
+
+  useEffect(() => {
+    if (task?.status === "purged" && task.source_asset) {
+      setActivePdfAssetId(task.source_asset.id);
+      setPage(1);
+    }
+  }, [task?.status, task?.source_asset]);
 
   async function retry() {
     setLoadError(null);
@@ -147,21 +169,38 @@ export function TaskWorkspace({ taskId, locale }: { taskId: string; locale: Loca
     await load();
   }
 
-  const pdfUrl = task?.source_asset
-    ? `/backend/tasks/${task.id}/assets/${task.source_asset.id}/content#page=${page}&view=FitH`
+  async function purgeTemporaryAssets() {
+    const response = await fetch(`/backend/tasks/${taskId}/retention`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "purge_temporary" }),
+    });
+    const data = await response.json().catch(() => ({})) as { detail?: string; status?: string };
+    if (!response.ok) {
+      setLoadError(data.detail ?? (en ? "Temporary materials could not be cleared" : "临时材料未能清理"));
+      return;
+    }
+    setLoadError(data.status === "purge_failed" ? (en ? "Some temporary materials could not be cleared; retry is available." : "部分临时材料清理失败，可以安全重试。") : null);
+    await load();
+  }
+
+  const displayedAssetId = activePdfAssetId ?? task?.source_asset?.id;
+  const pdfUrl = task && displayedAssetId
+    ? `/backend/tasks/${task.id}/assets/${displayedAssetId}/content#page=${page}&view=FitH`
     : null;
 
   if (!task) {
     return <main className="loading-screen" id="main-content"><div className="spinner" /><p>{loadError ?? (en ? "Loading review progress…" : "正在读取检查进度…")}</p></main>;
   }
 
-  const parsedReady = ["references_ready", "checking", "checking_failed", "review_ready", "reviewed", "reporting", "completed"].includes(task.status);
-  const reviewing = ["review_ready", "reviewed", "completed"].includes(task.status);
+  const parsedReady = ["references_ready", "fetching_sources", "indexing", "checking", "checking_failed", "review_ready", "reviewed", "reporting", "completed", "retention_pending", "purged", "purge_failed"].includes(task.status);
+  const reviewing = ["review_ready", "reviewed", "completed", "retention_pending", "purged", "purge_failed"].includes(task.status);
   const failed = task.status.endsWith("_failed");
   const coverage = task.coverage_summary;
   const total = Number(coverage.references_total ?? 0);
   const refsParsed = Number(coverage.references_parsed ?? 0);
   const failedRefs = Number(coverage.references_failed ?? 0);
+  const fullTexts = Number(coverage.reference_full_texts_obtained ?? 0);
+  const comparedFullTexts = Number(coverage.reference_full_texts_compared ?? 0);
+  const comparisonBudgetExhausted = Number(coverage.reference_candidate_budget_exhausted ?? 0) === 1;
   const sections = Number(coverage.body_sections ?? 0);
   const located = Number(coverage.located_sections ?? 0);
 
@@ -198,14 +237,19 @@ export function TaskWorkspace({ taskId, locale }: { taskId: string; locale: Loca
             <article><span>{en ? "References" : "参考文献"}</span><strong>{total}</strong><small>{en ? "identified" : "识别总数"}</small></article>
             <article><span>{en ? "Parsed" : "成功解析"}</span><strong>{refsParsed}</strong><small>{total ? `${Math.round(refsParsed / total * 100)}%` : (en ? "No references" : "暂无引用")}</small></article>
             <article><span>{en ? "Failed" : "解析失败"}</span><strong>{failedRefs}</strong><small>{failedRefs ? (en ? "See reference list" : "原因见引用清单") : (en ? "None" : "无")}</small></article>
+            <article><span>{en ? "Open full text" : "开放全文"}</span><strong>{fullTexts}/{total}</strong><small>{en ? "legally obtained" : "合法取得"}</small></article>
+            <article><span>{en ? "Compared sources" : "进入文本对照"}</span><strong>{comparedFullTexts}</strong><small>{en ? "with extractable text" : "具有可提取文本"}</small></article>
             <article><span>{en ? "Body locations" : "正文定位"}</span><strong>{located}/{sections}</strong><small>{en ? "sections located" : "已定位章节"}</small></article>
           </section>
 
-          {task.status === "checking" && (
-            <section className="review-action" aria-live="polite"><div className="spinner" /><div><strong>{en ? "Running the PDF evidence screen" : "正在进行 PDF 证据初筛"}</strong><p>{en ? "Text consistency, measurement labels, embedded bitmaps and evidence limits are being screened." : "正在初筛文本一致性、测量标签、内嵌位图与证据边界，完成后可逐项裁决。"}</p></div></section>
+          {["fetching_sources", "indexing", "checking"].includes(task.status) && (
+            <section className="review-action" aria-live="polite"><div className="spinner" /><div><strong>{task.stage_message}</strong><p>{en ? "Open sources are checked, indexed only for this task, then compared with the submitted paper." : "系统只获取合法开放来源，在当前任务内建立临时索引并与待检论文逐项对照。"}</p></div></section>
           )}
           {task.status === "checking_failed" && (
-            <section className="review-action failed"><div><strong>{en ? "The deep review stopped" : "深度检查未完成"}</strong><p>{task.error_message}</p><button type="button" className="secondary-button" onClick={retry}>{en ? "Try again" : "重新检查"}</button></div></section>
+            <section className="review-action failed"><div><strong>{en ? "The deep review stopped" : "深度检查未完成"}</strong><p>{task.error_message}</p><button type="button" className="secondary-button" onClick={retry}>{en ? "Try again" : "重新检查"}</button><button type="button" className="secondary-button" onClick={purgeTemporaryAssets}>{en ? "Clear temporary material and close" : "清理临时材料并结束"}</button></div></section>
+          )}
+          {comparisonBudgetExhausted && (
+            <section className="review-action failed"><div><strong>{en ? "Part of the source corpus was not compared" : "部分来源文本未进入比较"}</strong><p>{en ? "This task reached its candidate-comparison limit. The report records the actual coverage; no conclusion is drawn for the unprocessed remainder." : "本任务已达到候选文本块比较上限。报告会记录实际覆盖范围，未处理部分不作结论。"}</p></div></section>
           )}
 
           <section className="review-grid">
@@ -221,10 +265,12 @@ export function TaskWorkspace({ taskId, locale }: { taskId: string; locale: Loca
                     const draft = decisionDrafts[item.id] ?? { decision: "", reason: "" };
                     const title = evidenceTitle[item.code]?.[en ? 1 : 0] ?? item.code;
                     return <article className="evidence-card" key={item.id}>
-                      <div className="evidence-card-heading"><span>{String(index + 1).padStart(2, "0")}</span><div><small>{item.severity === "high" ? (en ? "Material limitation" : "重要限制") : (en ? "Needs review" : "待复核")}</small><h3>{title}</h3></div>{item.subject_location.page && <button className="page-link" onClick={() => setPage(item.subject_location.page!)}>{en ? `Page ${item.subject_location.page}` : `第 ${item.subject_location.page} 页`} ↗</button>}</div>
+                      <div className="evidence-card-heading"><span>{String(index + 1).padStart(2, "0")}</span><div><small>{item.severity === "high" ? (en ? "Material limitation" : "重要限制") : (en ? "Needs review" : "待复核")}</small><h3>{title}</h3></div>{item.subject_location.page && <button className="page-link" onClick={() => { setActivePdfAssetId(task.source_asset!.id); setPage(item.subject_location.page!); }}>{en ? `Page ${item.subject_location.page}` : `第 ${item.subject_location.page} 页`} ↗</button>}</div>
                       <p className="evidence-explanation">{item.explanation}</p>
                       <blockquote>{item.subject_excerpt}</blockquote>
-                      {item.source_location?.page && <button className="page-link comparison-link" onClick={() => setPage(item.source_location!.page!)}>{en ? `Compare with page ${item.source_location.page}` : `对照第 ${item.source_location.page} 页`} ↗</button>}
+                      {item.source_excerpt && <blockquote className="source-excerpt">{item.source_excerpt}</blockquote>}
+                      {item.source_location?.page && !["purged", "purge_failed"].includes(task.status) && <button className="page-link comparison-link" onClick={() => { setActivePdfAssetId(item.source_location!.document_id); setPage(item.source_location!.page!); }}>{en ? `Open source page ${item.source_location.page}` : `打开来源第 ${item.source_location.page} 页`} ↗</button>}
+                      {item.source_location?.page && ["purged", "purge_failed"].includes(task.status) && <small>{en ? "The source file may have been cleared; its excerpt and checksum remain in the report." : "来源全文可能已清理；来源片段与文件校验值仍保留在报告中。"}</small>}
                       {item.decision ? <div className="decision-saved"><strong>{en ? "Decision saved" : "已完成裁决"}</strong><span>{item.decision.reason}</span></div> : <div className="decision-form">
                         <label>{en ? "Your decision" : "复核决定"}<select value={draft.decision} onChange={(event) => setDecisionDrafts((current) => ({ ...current, [item.id]: { ...draft, decision: event.target.value } }))}><option value="">{en ? "Choose…" : "请选择…"}</option><option value="confirmed">{en ? "Confirm discrepancy" : "确认存在差异"}</option><option value="needs_material">{en ? "Request material" : "要求补充材料"}</option><option value="insufficient">{en ? "Insufficient evidence" : "证据不足"}</option><option value="reasonable">{en ? "Reasonable explanation" : "合理或可接受"}</option></select></label>
                         <label>{en ? "Reason" : "裁决理由"}<textarea value={draft.reason} onChange={(event) => setDecisionDrafts((current) => ({ ...current, [item.id]: { ...draft, reason: event.target.value } }))} placeholder={en ? "State what the evidence does and does not establish" : "写明这项证据能说明什么、不能说明什么"} /></label>
@@ -255,8 +301,9 @@ export function TaskWorkspace({ taskId, locale }: { taskId: string; locale: Loca
                       <div>
                         <h3>{reference.title || reference.raw_citation}</h3>
                         {reference.title && <p>{[reference.authors.join(", "), reference.venue, reference.year].filter(Boolean).join(" · ")}</p>}
-                        {reference.failure_reason && <small className="failure-reason">{en ? "Bibliographic parsing failed" : failureText[reference.failure_reason] ?? "书目信息解析失败"}</small>}
+                        {reference.failure_reason && <small className="failure-reason">{(failureText[reference.failure_reason] ?? ["当前来源未能处理", "This source could not be processed"])[en ? 1 : 0]}</small>}
                         {reference.doi && <small className="doi">DOI {reference.doi}</small>}
+                        <small className="doi">{en ? "Full text" : "全文"}: {(fullTextStatus[reference.full_text_status] ?? ["状态待确认", "Status unavailable"])[en ? 1 : 0]}</small>
                       </div>
                       {reference.page ? <button className="page-link" onClick={() => setPage(reference.page!)}>{en ? `Page ${reference.page}` : `第 ${reference.page} 页`} ↗</button> : null}
                     </article>
@@ -265,12 +312,15 @@ export function TaskWorkspace({ taskId, locale }: { taskId: string; locale: Loca
               )}
             </div>
             <aside className="pdf-panel">
-              <div className="pdf-toolbar"><strong>{en ? "Source PDF" : "原文"}</strong><span>{en ? `Page ${page}` : `第 ${page} 页`}</span></div>
+              <div className="pdf-toolbar"><strong>{displayedAssetId === task.source_asset?.id ? (en ? "Submitted PDF" : "待检原文") : (en ? "Cited source PDF" : "引用来源")}</strong><span>{en ? `Page ${page}` : `第 ${page} 页`}</span>{displayedAssetId !== task.source_asset?.id && <button className="page-link" onClick={() => { setActivePdfAssetId(task.source_asset!.id); setPage(1); }}>{en ? "Back to submitted paper" : "返回待检论文"}</button>}</div>
               {pdfUrl && <iframe key={pdfUrl} src={pdfUrl} title={en ? `Paper source, page ${page}` : `论文原文，第 ${page} 页`} />}
             </aside>
           </section>
           {task.status === "reviewed" && <section className="report-action"><div><strong>{en ? "All evidence has been reviewed" : "全部证据已完成裁决"}</strong><p>{en ? "Generate a fixed report from the exact evidence and decisions shown above." : "现在可以按当前证据版本和裁决生成固定报告。"}</p></div><button type="button" className="secondary-button" onClick={generateReport}>{en ? "Generate report" : "生成可信报告"}</button></section>}
           {(reportUrl || task.report_asset) && <section className="report-action ready"><div><strong>{en ? "The review report is ready" : "可信报告已生成"}</strong><p>{en ? "The report records actual coverage, evidence, decisions and limitations." : "报告已固定实际覆盖率、证据、人工裁决和能力边界。"}</p></div><a className="secondary-button" href={reportUrl ?? `/backend/tasks/${task.id}/assets/${task.report_asset!.id}/content`} target="_blank" rel="noreferrer">{en ? "Open PDF report" : "打开 PDF 报告"}</a></section>}
+          {task.status === "completed" && <section className="report-action"><div><strong>{en ? "Temporary source material is still retained" : "临时引用材料尚待处置"}</strong><p>{en ? "The report is fixed. Clear downloaded source PDFs and the task index to close this review." : "报告已经固定；清理下载的引用全文与任务索引后，本次检查才完成生命周期收口。"}</p></div><button type="button" className="secondary-button" onClick={purgeTemporaryAssets}>{en ? "Clear temporary material" : "清理临时材料"}</button></section>}
+          {task.status === "purge_failed" && <section className="report-action failed"><div><strong>{en ? "Temporary cleanup is incomplete" : "临时材料未完全清理"}</strong><p>{task.stage_message}</p></div><button type="button" className="secondary-button" onClick={purgeTemporaryAssets}>{en ? "Retry cleanup" : "重试清理"}</button></section>}
+          {task.status === "purged" && <section className="report-action ready"><div><strong>{en ? "Temporary material cleared" : "临时材料已清理"}</strong><p>{task.report_asset ? (en ? "The report and audit record remain available; downloaded references and the task index were removed." : "可信报告与审计记录继续保留；下载的引用全文和任务索引已经移除。") : (en ? "Downloaded references and the task index were removed; the submitted paper and audit record remain available." : "下载的引用全文和任务索引已经移除；待检论文与审计记录继续保留。")}</p></div></section>}
           {loadError && <p className="form-error">{loadError}</p>}
           <p className="result-boundary">{en ? "Evidence and anomalies require human review; they are not automatic findings of misconduct." : "证据与异常仍需人工复核，不构成对作者主观故意或学术不端的自动判定。"}</p>
         </>

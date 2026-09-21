@@ -39,6 +39,8 @@ class ReferenceOut(BaseModel):
     bbox: list[float] | None
     metadata_status: str
     full_text_status: str
+    full_text_asset_id: uuid.UUID | None
+    access_url: str | None
 
 
 class ParsedDocumentOut(BaseModel):
@@ -125,6 +127,17 @@ class ReportOut(BaseModel):
     evidence_version: str
     download_url: str
     created_at: datetime
+
+
+class RetentionIn(BaseModel):
+    action: str = Field(pattern="^purge_temporary$")
+
+
+class RetentionOut(BaseModel):
+    task_id: uuid.UUID
+    status: str
+    purged_assets: int
+    failed_assets: int
 
 
 class PublicUserOut(BaseModel):

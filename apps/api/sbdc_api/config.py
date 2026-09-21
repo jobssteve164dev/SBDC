@@ -16,6 +16,13 @@ class Settings(BaseSettings):
     max_pdf_bytes: int = 52_428_800
     max_pdf_pages: int = 500
     request_timeout_seconds: int = 300
+    academic_api_timeout_seconds: int = 20
+    max_reference_fulltexts: int = 100
+    max_reference_total_bytes: int = 524_288_000
+    max_reference_total_pages: int = 5_000
+    max_reference_total_characters: int = 20_000_000
+    max_reference_index_bytes: int = 104_857_600
+    max_reference_candidate_comparisons: int = 50_000
     cors_origins: str = "http://localhost:3000"
     public_cookie_secure: bool = True
     public_session_days: int = 30

@@ -62,6 +62,18 @@ def test_task_state_machine_allows_a_review_with_no_findings_to_reach_reporting(
     assert status == TaskStatus.REVIEWED
 
 
+def test_task_state_machine_tracks_source_fetch_index_and_retention_terminal_states():
+    status = transition_task(TaskStatus.REFERENCES_READY, TaskStatus.FETCHING_SOURCES)
+    status = transition_task(status, TaskStatus.INDEXING)
+    status = transition_task(status, TaskStatus.CHECKING)
+    status = transition_task(TaskStatus.COMPLETED, TaskStatus.RETENTION_PENDING)
+    status = transition_task(status, TaskStatus.PURGED)
+    assert status == TaskStatus.PURGED
+    assert transition_task(TaskStatus.CHECKING_FAILED, TaskStatus.FETCHING_SOURCES) == TaskStatus.FETCHING_SOURCES
+    assert transition_task(TaskStatus.CHECKING_FAILED, TaskStatus.RETENTION_PENDING) == TaskStatus.RETENTION_PENDING
+    assert transition_task(TaskStatus.PURGE_FAILED, TaskStatus.RETENTION_PENDING) == TaskStatus.RETENTION_PENDING
+
+
 def test_storage_key_uses_only_system_ids():
     key = source_storage_key("task-id", "asset-id")
     assert key == "tasks/task-id/source/asset-id.pdf"

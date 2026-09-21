@@ -2,6 +2,7 @@ from collections.abc import Iterator
 from io import BytesIO
 
 from minio import Minio
+from minio.error import S3Error
 
 from .config import get_settings
 
@@ -27,6 +28,14 @@ def report_storage_key(task_id: str, asset_id: str) -> str:
     return f"tasks/{task_id}/reports/{asset_id}.pdf"
 
 
+def reference_storage_key(task_id: str, asset_id: str) -> str:
+    return f"tasks/{task_id}/references/{asset_id}.pdf"
+
+
+def reference_index_storage_key(task_id: str, asset_id: str) -> str:
+    return f"tasks/{task_id}/indexes/{asset_id}.json"
+
+
 def ensure_bucket() -> None:
     if not client.bucket_exists(settings.minio_bucket):
         client.make_bucket(settings.minio_bucket)
@@ -43,6 +52,16 @@ def put_file(key: str, path: str, size: int, content_type: str) -> None:
 
 def remove_object(key: str) -> None:
     client.remove_object(settings.minio_bucket, key)
+
+
+def object_exists(key: str) -> bool:
+    try:
+        client.stat_object(settings.minio_bucket, key)
+        return True
+    except S3Error as error:
+        if error.code in {"NoSuchKey", "NoSuchObject", "NoSuchBucket"}:
+            return False
+        raise
 
 
 def get_bytes(key: str) -> bytes:

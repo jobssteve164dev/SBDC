@@ -408,6 +408,12 @@ def render_pdf_report(analysis: dict[str, Any]) -> bytes:
         ["正文文本块", str(coverage.get("text_blocks_reviewed", 0))],
         ["非小型 PDF 内嵌位图初筛", str(coverage.get("embedded_images_screened", 0))],
         ["参考文献全文", f"{coverage.get('reference_full_texts_obtained', 0)} / {coverage.get('references_total', 0)}"],
+        ["进入文本对照", str(coverage.get("reference_full_texts_compared", 0))],
+        [
+            "来源候选块比较",
+            f"{coverage.get('reference_candidate_comparisons', 0)} / {coverage.get('reference_candidate_budget', 0)}"
+            + ("（已达任务上限）" if coverage.get("reference_candidate_budget_exhausted") else ""),
+        ],
         ["识别到的统计表达", str(coverage.get("statistical_mentions_detected", 0))],
     ]
     table = Table(coverage_rows, colWidths=[45 * mm, 105 * mm], repeatRows=1)
@@ -431,6 +437,7 @@ def render_pdf_report(analysis: dict[str, Any]) -> bytes:
         "measurement_condition_inconsistency": "同一数值结果关联多个条件标签",
         "data_not_directly_available": "关键原始数据未随论文直接提供",
         "embedded_image_reuse_candidate": "PDF 内出现相同位图候选",
+        "reference_text_reuse_candidate": "与引用来源存在连续文本重合",
     }
     decisions_by_id = {item.get("evidence_id"): item for item in analysis.get("decisions", []) if item.get("evidence_id")}
     decisions_by_code = {item.get("evidence_code"): item for item in analysis.get("decisions", [])}
@@ -454,6 +461,19 @@ def render_pdf_report(analysis: dict[str, Any]) -> bytes:
             evidence_block.append(
                 Paragraph(f"对照位置：第 {source_location['page']} 页", small)
             )
+        source = (item.get("method") or {}).get("source") or {}
+        if source:
+            source_identity = "　".join(
+                value for value in (
+                    str(source.get("title") or ""),
+                    f"DOI {source['doi']}" if source.get("doi") else "",
+                    f"文件 SHA-256 {source['sha256']}" if source.get("sha256") else "",
+                ) if value
+            )
+            if source_identity:
+                evidence_block.append(Paragraph(f"对照来源：{escape(source_identity)}", small))
+        if item.get("source_excerpt"):
+            evidence_block.append(Paragraph(f"来源原文：{escape(str(item['source_excerpt']))}", small))
         for limitation in item.get("limitations", []):
             evidence_block.append(Paragraph(f"方法限制：{escape(str(limitation))}", small))
         if code == "cross_condition_subject_mismatch":

@@ -2,8 +2,10 @@ import hashlib
 import json
 import logging
 import uuid
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
+import urllib3
 from sqlalchemy import delete, select
 
 from sbdc_api.config import get_settings
@@ -12,16 +14,185 @@ from sbdc_api.models import (
     AuditEvent, DocumentAsset, EvidenceRecord, PaperTask, ParsedDocument, ParseRun,
     ReferenceSource, ReviewRun,
 )
-from sbdc_api.storage import get_bytes, put_bytes
+from sbdc_api.storage import get_bytes, put_bytes, reference_index_storage_key, reference_storage_key
 from sbdc_domain import CoverageSummary, TaskStatus
 
 from .celery_app import app
 from .tei import parse_tei
 from .deep_review import METHOD_VERSION, analyze_pdf
+from .reference_pipeline import (
+    build_reference_index, compare_reference_corpus, download_open_pdf, extract_pdf_blocks, pdf_page_count,
+    resolve_open_access,
+)
 
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
+
+
+def _public_url_without_query(url: str) -> str:
+    parsed = urlsplit(url)
+    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
+
+
+def _prepare_reference_corpus(db, task: PaperTask, source_asset: DocumentAsset) -> tuple[dict, list[dict], dict]:
+    references = list(db.scalars(select(ReferenceSource).where(ReferenceSource.task_id == task.id)))
+    documents: list[dict] = []
+    total_bytes = 0
+    total_pages = 0
+    total_characters = 0
+    obtained_count = 0
+    skipped_budget = 0
+    task.status = TaskStatus.FETCHING_SOURCES.value
+    task.stage_message = "正在确认引用并获取合法开放全文"
+    db.commit()
+    with httpx.Client(
+        timeout=settings.academic_api_timeout_seconds,
+        headers={"User-Agent": "SBDC/0.1 (source-based research review)"},
+    ) as client:
+        for reference in references:
+            try:
+                if reference.full_text_asset_id:
+                    existing_asset = db.get(DocumentAsset, reference.full_text_asset_id)
+                    if existing_asset and existing_asset.retention_state == "active":
+                        data = get_bytes(existing_asset.storage_key)
+                        blocks = extract_pdf_blocks(data, str(existing_asset.id))
+                        characters = sum(len(block["text"]) for block in blocks)
+                        pages = existing_asset.page_count or pdf_page_count(data)
+                        if (
+                            obtained_count >= settings.max_reference_fulltexts
+                            or total_bytes + len(data) > settings.max_reference_total_bytes
+                            or total_pages + pages > settings.max_reference_total_pages
+                            or total_characters + characters > settings.max_reference_total_characters
+                        ):
+                            skipped_budget += 1
+                            continue
+                        total_bytes += len(data)
+                        total_pages += pages
+                        obtained_count += 1
+                        if blocks:
+                            documents.append({
+                                "reference_id": str(reference.id), "asset_id": str(existing_asset.id),
+                                "title": reference.title, "doi": reference.doi, "sha256": existing_asset.sha256,
+                                "blocks": blocks,
+                            })
+                            total_characters += characters
+                        continue
+                resolved = resolve_open_access(
+                    {
+                        "doi": reference.doi, "raw_citation": reference.raw_citation, "title": reference.title,
+                        "authors": reference.authors, "year": reference.year, "venue": reference.venue,
+                    },
+                    client,
+                )
+                for field in ("doi", "title", "authors", "year", "venue", "metadata_status", "full_text_status"):
+                    if field in resolved:
+                        setattr(reference, field, resolved[field])
+                url = resolved.get("access_url")
+                if not url:
+                    continue
+                if obtained_count >= settings.max_reference_fulltexts:
+                    reference.full_text_status = "budget_exceeded"
+                    skipped_budget += 1
+                    continue
+                reference.access_url = _public_url_without_query(url)
+                remaining_bytes = settings.max_reference_total_bytes - total_bytes
+                remaining_pages = settings.max_reference_total_pages - total_pages
+                if remaining_bytes <= 0 or remaining_pages <= 0:
+                    reference.full_text_status = "budget_exceeded"
+                    skipped_budget += 1
+                    continue
+                data = download_open_pdf(
+                    url, max_bytes=min(settings.max_pdf_bytes, remaining_bytes),
+                    max_pages=min(settings.max_pdf_pages, remaining_pages),
+                )
+                asset_id = uuid.uuid4()
+                key = reference_storage_key(str(task.id), str(asset_id))
+                blocks = extract_pdf_blocks(data, str(asset_id))
+                characters = sum(len(block["text"]) for block in blocks)
+                pages = pdf_page_count(data)
+                if total_characters + characters > settings.max_reference_total_characters:
+                    reference.full_text_status = "budget_exceeded"
+                    skipped_budget += 1
+                    continue
+                asset = DocumentAsset(
+                    id=asset_id, task_id=task.id, role="reference_full_text", storage_key=key,
+                    sha256=hashlib.sha256(data).hexdigest(), media_type="application/pdf", size_bytes=len(data),
+                    page_count=pages, license_status="open_access", retention_state="pending",
+                    provenance={"source": "openalex_open_location", "reference_id": str(reference.id), "access_url": reference.access_url},
+                )
+                db.add(asset)
+                db.commit()
+                try:
+                    put_bytes(key, data, "application/pdf")
+                except Exception:
+                    asset.retention_state = "purge_failed"
+                    db.commit()
+                    raise
+                asset.retention_state = "active"
+                reference.full_text_asset_id = asset.id
+                reference.full_text_status = "obtained" if blocks else "obtained_no_text"
+                total_bytes += len(data)
+                total_pages += pages
+                obtained_count += 1
+                if blocks:
+                    documents.append({
+                        "reference_id": str(reference.id), "asset_id": str(asset.id), "title": reference.title,
+                        "doi": reference.doi, "sha256": asset.sha256, "blocks": blocks,
+                    })
+                    total_characters += characters
+                db.add(AuditEvent(
+                    task_id=task.id, event_type="reference.full_text_obtained",
+                    details={"reference_id": str(reference.id), "asset_id": str(asset.id), "sha256": asset.sha256},
+                ))
+                db.commit()
+            except (httpx.HTTPError, urllib3.exceptions.HTTPError, ValueError, OSError):
+                reference.full_text_status = "download_failed"
+                reference.failure_reason = "open_full_text_unavailable_or_invalid"
+    db.commit()
+
+    task.status = TaskStatus.INDEXING.value
+    task.stage_message = "正在建立本任务的引用对照索引"
+    db.commit()
+    index = build_reference_index(str(task.id), documents)
+    index_bytes = json.dumps(index, ensure_ascii=False, separators=(",", ":")).encode()
+    while documents and len(index_bytes) > settings.max_reference_index_bytes:
+        documents.pop()
+        skipped_budget += 1
+        index = build_reference_index(str(task.id), documents)
+        index_bytes = json.dumps(index, ensure_ascii=False, separators=(",", ":")).encode()
+    if len(index_bytes) > settings.max_reference_index_bytes:
+        raise ValueError("Reference index exceeds the configured task budget")
+    index_asset = DocumentAsset(
+        id=uuid.uuid4(), task_id=task.id, role="reference_index", storage_key="pending",
+        sha256=hashlib.sha256(index_bytes).hexdigest(), media_type="application/json", size_bytes=len(index_bytes),
+        license_status="derived_private", retention_state="pending", provenance={"version": index["version"]},
+    )
+    index_asset.storage_key = reference_index_storage_key(str(task.id), str(index_asset.id))
+    db.add(index_asset)
+    db.commit()
+    try:
+        put_bytes(index_asset.storage_key, index_bytes, "application/json")
+    except Exception:
+        index_asset.retention_state = "purge_failed"
+        db.commit()
+        raise
+    index_asset.retention_state = "active"
+    db.add(AuditEvent(
+        task_id=task.id, event_type="reference.indexed",
+        details={"documents": len(documents), "index_sha256": index_asset.sha256},
+    ))
+    task.status = TaskStatus.CHECKING.value
+    task.stage_message = "正在对照待检论文与引用全文"
+    db.commit()
+    return index, documents, {
+        "reference_full_texts_compared": len(documents),
+        "reference_full_texts_skipped_budget": skipped_budget,
+        "reference_corpus_bytes": total_bytes,
+        "reference_corpus_pages": total_pages,
+        "reference_corpus_characters": total_characters,
+        "reference_index_bytes": len(index_bytes),
+    }
 
 
 def grobid_parse(pdf_bytes: bytes) -> tuple[bytes, str | None]:
@@ -175,15 +346,40 @@ def deep_review_document(task_id: str, run_id: str) -> dict[str, str]:
         run.status = "running"
         db.commit()
 
-        analysis = analyze_pdf(get_bytes(asset.storage_key), document_id=str(asset.id))
+        source_bytes = get_bytes(asset.storage_key)
+        index, reference_documents, corpus_coverage = _prepare_reference_corpus(db, task, asset)
+        analysis = analyze_pdf(source_bytes, document_id=str(asset.id))
+        comparison_metrics: dict[str, int] = {}
+        analysis["evidence"].extend(compare_reference_corpus(
+            extract_pdf_blocks(source_bytes, str(asset.id)), index,
+            max_candidate_comparisons=settings.max_reference_candidate_comparisons,
+            metrics=comparison_metrics,
+        ))
         document = db.scalar(select(ParsedDocument).where(ParsedDocument.task_id == task.id))
         references = list(db.scalars(select(ReferenceSource).where(ReferenceSource.task_id == task.id)))
         analysis["title"] = document.title if document and document.title else analysis.get("title")
         analysis["coverage"]["references_total"] = len(references)
         analysis["coverage"]["reference_full_texts_obtained"] = sum(
-            1 for reference in references if reference.full_text_status == "obtained"
+            1 for reference in references if reference.full_text_status in {"obtained", "obtained_no_text"}
         )
-        evidence_version = f"{asset.sha256}:{METHOD_VERSION}"
+        analysis["coverage"]["references_metadata_resolved"] = sum(
+            1 for reference in references if reference.metadata_status == "resolved"
+        )
+        analysis["coverage"]["reference_full_texts_indexed"] = len(reference_documents)
+        analysis["coverage"].update(corpus_coverage)
+        analysis["coverage"].update({
+            "reference_candidate_comparisons": comparison_metrics["candidate_comparisons"],
+            "reference_candidate_budget": comparison_metrics["candidate_budget"],
+            "reference_candidate_budget_exhausted": comparison_metrics["candidate_budget_exhausted"],
+        })
+        analysis["coverage"]["reference_full_text_failure_reasons"] = {
+            status: sum(1 for reference in references if reference.full_text_status == status)
+            for status in sorted({
+                reference.full_text_status for reference in references
+                if reference.full_text_status not in {"obtained"}
+            })
+        }
+        evidence_version = f"{asset.sha256}:{METHOD_VERSION}:{index['digest'][:16]}"
         for item in analysis["evidence"]:
             fingerprint = hashlib.sha256(
                 json.dumps(

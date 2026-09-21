@@ -376,7 +376,17 @@ test("审查者能从证据卡直接定位原文并作出复核决定", async (t
     await page.goto(`${baseUrl}/tasks/11111111-1111-1111-1111-111111111111`, { waitUntil: "networkidle" });
     await page.getByRole("heading", { name: "不同条件的结果来自不同研究对象" }).waitFor();
     assert.equal(await page.getByRole("button", { name: "第 4 页 ↗" }).isVisible(), true);
-    assert.equal(await page.getByRole("button", { name: "对照第 1 页 ↗" }).isVisible(), true);
+    assert.match(await page.locator("main").innerText(), /开放全文[\s\S]*12\/52/);
+    await page.getByRole("tab", { name: /参考文献/ }).click();
+    await page.getByText("未发现合法开放全文").waitFor();
+    assert.match(await page.locator("main").innerText(), /未发现合法开放全文/);
+    assert.doesNotMatch(await page.locator("main").innerText(), /not_open_access/);
+    await page.getByRole("tab", { name: /待复核证据/ }).click();
+    await page.getByRole("heading", { name: "不同条件的结果来自不同研究对象" }).waitFor();
+    await page.getByRole("button", { name: "打开来源第 1 页 ↗" }).click();
+    assert.match(await page.locator(".pdf-panel iframe").getAttribute("src"), /cccccccc-cccc-cccc-cccc-cccccccccccc\/content#page=1/);
+    await page.getByRole("button", { name: "第 4 页 ↗" }).click();
+    assert.match(await page.locator(".pdf-panel iframe").getAttribute("src"), /aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\/content#page=4/);
     assert.equal(await page.getByLabel("复核决定").isVisible(), true);
     assert.equal(await page.getByLabel("裁决理由").isVisible(), true);
     const text = await page.locator("main").innerText();

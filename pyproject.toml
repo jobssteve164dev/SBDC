@@ -20,6 +20,7 @@ dependencies = [
   "reportlab==5.0.1",
   "sqlalchemy==2.0.41",
   "uvicorn[standard]==0.34.3",
+  "urllib3==2.7.0",
 ]
 
 [project.optional-dependencies]

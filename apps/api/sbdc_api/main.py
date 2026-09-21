@@ -33,10 +33,10 @@ from .schemas import (
     AssetOut, CheckAccepted, DecisionIn, DecisionOut, EvidenceOut, ParseAccepted, ParsedDocumentOut,
     PublicUserOut, ReferenceOut, ReportOut,
     PublicReviewNoticeOut, PublicSubmissionOut, ReviewerSubmissionOut,
-    SubmissionOut, TaskCreate, TaskOut,
+    RetentionIn, RetentionOut, SubmissionOut, TaskCreate, TaskOut,
 )
 from .storage import (
-    ensure_bucket, put_bytes, put_file, remove_object, report_storage_key, source_storage_key,
+    ensure_bucket, object_exists, put_bytes, put_file, remove_object, report_storage_key, source_storage_key,
     stream_object, submission_storage_key,
 )
 from sbdc_worker.deep_review import METHOD_VERSION, render_pdf_report
@@ -818,7 +818,7 @@ def start_checks(task_id: uuid.UUID, db: Session = Depends(get_db)) -> CheckAcce
     existing = db.scalar(
         select(EvidenceRecord).where(
             EvidenceRecord.task_id == task.id,
-            EvidenceRecord.evidence_version == f"{asset.sha256}:{METHOD_VERSION}",
+            EvidenceRecord.evidence_version.like(f"{asset.sha256}:{METHOD_VERSION}%"),
         ).limit(1)
     )
     if existing is not None and task.status in {
@@ -828,8 +828,8 @@ def start_checks(task_id: uuid.UUID, db: Session = Depends(get_db)) -> CheckAcce
     if task.status not in {TaskStatus.REFERENCES_READY.value, TaskStatus.CHECKING_FAILED.value}:
         raise HTTPException(status_code=409, detail="当前状态不能开始深度检查")
 
-    task.status = transition_task(task.status, TaskStatus.CHECKING).value
-    task.stage_message = "正在核对全文、数值、图片与证据边界"
+    task.status = transition_task(task.status, TaskStatus.FETCHING_SOURCES).value
+    task.stage_message = "正在确认引用并查找合法开放全文"
     task.error_code = None
     task.error_message = None
     task.review_attempt += 1
@@ -975,8 +975,9 @@ def create_report(task_id: uuid.UUID, db: Session = Depends(get_db)) -> ReportOu
             for item, decision in zip(evidence, decisions, strict=True)
         ],
         "limitations": [
-            "本轮为 PDF-only 审核，未取得论文所依赖的原始数据、分析文件、原始图像或研究记录。",
+            "本轮审核待检论文及已合法取得的引用 PDF；未取得论文所依赖的原始数据、分析文件、原始图像或研究记录。",
             "引用支持与文本复用结论受已合法取得的引用全文覆盖率限制。",
+            "引用来源对照目前覆盖连续词面重合；语义改写、翻译式复用和论断支持关系尚未完成核验。",
             "PDF 内嵌位图仅进行了精确像素复用初筛；小型装饰图已排除，无原图时不能认证图片真实性。",
         ],
     }
@@ -1034,3 +1035,53 @@ def create_report(task_id: uuid.UUID, db: Session = Depends(get_db)) -> ReportOu
         id=report.id, task_id=task.id, asset_id=asset.id, evidence_version=evidence_version,
         download_url=f"/backend/tasks/{task.id}/assets/{asset.id}/content", created_at=report.created_at,
     )
+
+
+@app.post("/tasks/{task_id}/retention", response_model=RetentionOut)
+def apply_retention(task_id: uuid.UUID, payload: RetentionIn, db: Session = Depends(get_db)) -> RetentionOut:
+    task = get_task_or_404(db, task_id, lock=True)
+    if task.status == TaskStatus.PURGED.value:
+        return RetentionOut(task_id=task.id, status=task.status, purged_assets=0, failed_assets=0)
+    if task.status not in {
+        TaskStatus.COMPLETED.value, TaskStatus.CHECKING_FAILED.value,
+        TaskStatus.RETENTION_PENDING.value, TaskStatus.PURGE_FAILED.value,
+    }:
+        raise HTTPException(status_code=409, detail="当前任务没有可清理的临时材料")
+    if task.status != TaskStatus.RETENTION_PENDING.value:
+        task.status = transition_task(task.status, TaskStatus.RETENTION_PENDING).value
+    task.stage_message = "正在清理本任务的临时引用材料"
+    db.commit()
+
+    assets = list(db.scalars(select(DocumentAsset).where(
+        DocumentAsset.task_id == task.id,
+        DocumentAsset.role.in_(["reference_full_text", "reference_index", "reference_parsed"]),
+        DocumentAsset.retention_state != "purged",
+    )))
+    purged = 0
+    failed = 0
+    purged_ids: set[uuid.UUID] = set()
+    for asset in assets:
+        try:
+            remove_object(asset.storage_key)
+            if object_exists(asset.storage_key):
+                raise RuntimeError("temporary object still exists after removal")
+            asset.retention_state = "purged"
+            purged_ids.add(asset.id)
+            purged += 1
+        except Exception:
+            asset.retention_state = "purge_failed"
+            failed += 1
+    for reference in db.scalars(select(ReferenceSource).where(ReferenceSource.task_id == task.id)):
+        if reference.full_text_asset_id in purged_ids:
+            reference.full_text_status = "purged"
+    task.status = transition_task(
+        TaskStatus.RETENTION_PENDING,
+        TaskStatus.PURGE_FAILED if failed else TaskStatus.PURGED,
+    ).value
+    task.stage_message = "临时材料清理失败，可以安全重试" if failed else "临时引用全文与索引已清理"
+    db.add(AuditEvent(
+        task_id=task.id, event_type="retention.purge_failed" if failed else "retention.purged",
+        details={"target_count": len(assets), "purged_count": purged, "failed_count": failed},
+    ))
+    db.commit()
+    return RetentionOut(task_id=task.id, status=task.status, purged_assets=purged, failed_assets=failed)

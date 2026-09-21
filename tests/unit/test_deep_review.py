@@ -236,6 +236,20 @@ def test_pdf_report_states_coverage_decisions_and_evidence_boundaries():
             "reason": "正文与图注温度标签不一致。",
         }
     ]
+    analysis["coverage"]["reference_full_texts_compared"] = 1
+    analysis["evidence"].append(
+        {
+            "code": "reference_text_reuse_candidate",
+            "confidence": 0.91,
+            "subject_location": {"page": 1},
+            "source_location": {"page": 7},
+            "subject_excerpt": "Submitted passage preserved in the report.",
+            "source_excerpt": "Cited source passage preserved in the report.",
+            "explanation": "需要结合引用方式人工复核。",
+            "method": {"source": {"title": "Cited Source Title", "doi": "10.1000/source", "sha256": "abc123"}},
+            "limitations": ["文本相似不等于抄袭。"],
+        }
+    )
 
     report_bytes = review.render_pdf_report(analysis)
 
@@ -246,3 +260,8 @@ def test_pdf_report_states_coverage_decisions_and_evidence_boundaries():
         report_text = "\n".join(page.get_text() for page in report)
         assert "对照位置" in report_text
         assert "不同条件得到相同数值可能合理" in report_text
+        assert "进入文本对照" in report_text
+        assert "Cited Source Title" in report_text
+        assert "10.1000/source" in report_text
+        assert "Cited source passage preserved" in report_text
+        assert "abc123" in report_text

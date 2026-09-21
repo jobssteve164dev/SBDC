@@ -40,11 +40,16 @@ createServer((request, response) => {
     response.writeHead(200, { "content-type": "application/json" });
     response.end(JSON.stringify({
       id: taskId, status: "review_ready", stage_message: "深度检查完成，请逐项复核证据", error_message: null,
-      coverage_summary: { references_total: 52, references_parsed: 52, references_failed: 0, body_sections: 4, located_sections: 4 },
+      coverage_summary: { references_total: 52, references_parsed: 52, references_failed: 0, reference_full_texts_obtained: 12, body_sections: 4, located_sections: 4 },
       source_asset: { id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", sha256: "a".repeat(64), size_bytes: 2048, page_count: 7 },
       report_asset: null,
       document: { title: "Room Temperature Triggered Single Photon Emission", authors: ["Ling Chen"], abstract: "Room-temperature single photon emission study.", parser_version: "0.9.0", sections: [{ ordinal: 1, heading: "Results", page: 2, bbox: [1, 1, 2, 2], paragraphs: [{ text: "Experimental results.", page: 2, bbox: [1, 1, 2, 2] }] }] },
-      references: [],
+      references: [{
+        id: "dddddddd-dddd-dddd-dddd-dddddddddddd", ordinal: 1, raw_citation: "A cited source.",
+        title: "A cited source", authors: ["Example Author"], year: "2024", venue: "Evidence Journal",
+        doi: "10.1000/example", parse_status: "parsed", failure_reason: null, page: 7, bbox: [1, 1, 2, 2],
+        metadata_status: "resolved", full_text_status: "not_open_access", full_text_asset_id: null, access_url: null,
+      }],
     }));
     return;
   }
@@ -52,9 +57,10 @@ createServer((request, response) => {
     response.writeHead(200, { "content-type": "application/json" });
     response.end(JSON.stringify([{
       id: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", code: "cross_condition_subject_mismatch", status: "needs_review",
-      severity: "high", confidence: 0.99, subject_location: { page: 4, bbox: [1, 1, 2, 2] },
-      source_location: { page: 1, bbox: [1, 1, 2, 2] },
+      severity: "high", confidence: 0.99, subject_location: { document_id: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", page: 4, bbox: [1, 1, 2, 2] },
+      source_location: { document_id: "cccccccc-cccc-cccc-cccc-cccccccccccc", page: 1, bbox: [1, 1, 2, 2] },
       subject_excerpt: "The data recorded at 4.6 K and RT were not obtained from the same QD.",
+      source_excerpt: "Figure 3 reports the comparison baseline.",
       explanation: "低温与室温结果来自不同发射体，现有记录不能证明同一发射体随温度升高仍保持相同性能。",
       limitations: ["该发现不评价测量数据真实性。"], decision: null,
     }]));
