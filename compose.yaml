@@ -21,6 +21,7 @@ x-gitops:
 services:
   redis:
     image: sbdc-redis:7.4.4-alpine
+    restart: unless-stopped
     platform: linux/amd64
     build:
       context: ./infrastructure/docker/runtime-images
@@ -36,6 +37,7 @@ services:
 
   minio:
     image: sbdc-minio:RELEASE.2025-04-22T22-12-26Z
+    restart: unless-stopped
     platform: linux/amd64
     build:
       context: ./infrastructure/docker/runtime-images
@@ -54,6 +56,7 @@ services:
 
   grobid:
     image: sbdc-grobid:0.9.0-crf
+    restart: unless-stopped
     platform: linux/amd64
     build:
       context: ./infrastructure/docker/runtime-images
@@ -69,6 +72,7 @@ services:
       start_period: 45s
 
   api:
+    restart: unless-stopped
     platform: linux/amd64
     build:
       context: .
@@ -95,6 +99,7 @@ services:
       retries: 20
 
   worker:
+    restart: unless-stopped
     platform: linux/amd64
     build:
       context: .
@@ -109,6 +114,7 @@ services:
         condition: service_healthy
 
   web:
+    restart: unless-stopped
     platform: linux/amd64
     build:
       context: apps/web

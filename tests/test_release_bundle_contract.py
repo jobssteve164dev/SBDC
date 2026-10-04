@@ -112,6 +112,22 @@ def test_all_runtime_services_target_deployment_node_architecture() -> None:
     )
 
 
+def test_all_production_services_restart_after_the_docker_daemon_recovers() -> None:
+    services = _rendered_services()
+
+    assert {
+        service_name: service.get("restart")
+        for service_name, service in services.items()
+    } == {
+        "api": "unless-stopped",
+        "grobid": "unless-stopped",
+        "minio": "unless-stopped",
+        "redis": "unless-stopped",
+        "web": "unless-stopped",
+        "worker": "unless-stopped",
+    }
+
+
 def test_runtime_image_wrappers_are_local_and_digest_pinned() -> None:
     services = _rendered_services()
 
