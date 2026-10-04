@@ -11,9 +11,10 @@ COMPOSE_FILE = PROJECT_ROOT / "compose.yaml"
 RUNTIME_IMAGE_DIR = PROJECT_ROOT / "infrastructure/docker/runtime-images"
 EXPECTED_RUNTIME_WRAPPERS = {
     "grobid": ("grobid.Dockerfile", "grobid/grobid:0.9.0-crf"),
-    "minio": ("minio.Dockerfile", "minio/minio:RELEASE.2025-04-22T22-12-26Z"),
     "redis": ("redis.Dockerfile", "redis:7.4.4-alpine"),
 }
+MINIO_RELEASE = "RELEASE.2025-04-22T22-12-26Z"
+MINIO_BINARY_SHA256 = "53e2a2cb16c5366ea6fbbc479c19ddb4c6a0948273e752f740fb1fbf27bb817c"
 WEB_DOCKERFILE = PROJECT_ROOT / "apps/web/Dockerfile"
 
 
@@ -150,6 +151,36 @@ def test_runtime_image_wrappers_are_local_and_digest_pinned() -> None:
             rf"FROM {re.escape(upstream_image)}@sha256:[0-9a-f]{{64}}",
             instructions[0],
         )
+
+
+def test_minio_runtime_uses_the_official_checksum_pinned_release_binary() -> None:
+    dockerfile = (RUNTIME_IMAGE_DIR / "minio.Dockerfile").read_text(encoding="utf-8")
+
+    assert dockerfile.splitlines()[0] == (
+        "FROM alpine:3.21.3@sha256:"
+        "a8560b36e8b8210634f77d9f7f9efd7ffa463e380b75e2e74aff4511df3ef88c"
+    )
+    assert (
+        f"ADD --checksum=sha256:{MINIO_BINARY_SHA256} "
+        f"https://github.com/minio/minio/releases/download/{MINIO_RELEASE}/"
+        f"minio.linux-amd64.{MINIO_RELEASE} /usr/bin/minio"
+    ) in dockerfile
+    assert "RUN chmod 0755 /usr/bin/minio" in dockerfile
+    assert 'ENTRYPOINT ["/usr/bin/minio"]' in dockerfile
+    assert 'CMD ["server", "/data"]' in dockerfile
+
+
+def test_minio_healthcheck_uses_the_client_available_in_the_runtime_image() -> None:
+    healthcheck = _rendered_services()["minio"]["healthcheck"]["test"]
+
+    assert healthcheck == [
+        "CMD",
+        "wget",
+        "-q",
+        "-O",
+        "/dev/null",
+        "http://localhost:9000/minio/health/live",
+    ]
 
 
 def test_web_build_runs_on_runner_architecture_and_emits_target_architecture() -> None:
